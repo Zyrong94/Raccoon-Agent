@@ -1,0 +1,22 @@
+name: researcher
+description: Read-only codebase exploration and evidence collection.
+tools:
+- tool_search
+- load_skill
+- diagnostics
+- git_diff
+- git_log
+- git_status
+- glob
+- grep
+- ls
+- read_multi
+- think
+- tree
+- view
+skills: null
+allow_background: true
+requires_worktree: false
+max_tool_rounds: 16
+max_provider_calls: 32
+max_turn_seconds: 480

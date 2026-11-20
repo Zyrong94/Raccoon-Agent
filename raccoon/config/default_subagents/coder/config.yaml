@@ -1,0 +1,29 @@
+name: coder
+description: Implementation work. Background coding runs inside an isolated git worktree
+  so it can never mutate the parent working tree.
+tools:
+- tool_search
+- load_skill
+- apply_patch
+- delete
+- diagnostics
+- edit
+- git_diff
+- git_log
+- git_status
+- glob
+- grep
+- ls
+- read_multi
+- shell
+- python_exec
+- think
+- tree
+- view
+- write
+skills: null
+allow_background: true
+requires_worktree: true
+max_tool_rounds: 40
+max_provider_calls: 80
+max_turn_seconds: 1200

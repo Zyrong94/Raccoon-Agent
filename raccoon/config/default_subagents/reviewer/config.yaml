@@ -1,0 +1,18 @@
+name: reviewer
+description: Read-only review of diffs, call sites, and risks.
+tools:
+- tool_search
+- load_skill
+- git_diff
+- git_log
+- git_status
+- grep
+- read_multi
+- think
+- view
+skills: null
+allow_background: true
+requires_worktree: false
+max_tool_rounds: 10
+max_provider_calls: 20
+max_turn_seconds: 300

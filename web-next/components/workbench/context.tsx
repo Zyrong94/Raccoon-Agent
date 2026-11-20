@@ -1,0 +1,9 @@
+"use client";
+import {createContext,useContext,type ReactNode} from 'react';
+import type {Artifact,Canvas,Workspace,SidebarSnapshot,DirectoryListing,ArchiveSnapshot,Snapshot} from '@/lib/workbench/types';
+import type {WorkbenchStore} from '@/lib/workbench/client';
+export type SidebarNavigation={state:SidebarSnapshot;onNew:(projectId?:string,preserveDraft?:boolean)=>Promise<void>;onOpen:(projectId:string,conversationId:string)=>Promise<void>;onPrewarm?:(projectId:string,conversationId:string)=>void;onUpdate:(projectId:string,conversationId:string,changes:{title?:string;pinned?:boolean;archived?:boolean})=>Promise<void>;onAdd:(path:string)=>Promise<void>;browse:(path?:string)=>Promise<DirectoryListing>;pickDirectory?:(path?:string,signal?:AbortSignal)=>Promise<string|null>;updateProject?:(projectId:string,archived:boolean)=>Promise<void>;removeProject?:(projectId:string)=>Promise<void>;getArchives?:()=>Promise<ArchiveSnapshot>;restoreArchivedChat?:(storageProjectId:string,conversationId:string)=>Promise<void>};
+export type ProjectNavigation=SidebarNavigation&Required<Pick<SidebarNavigation,'getArchives'>>;
+export type WorkbenchConfig={runStatus?:Pick<Snapshot,'run_phase'|'running_tool_call_ids'|'parallel_replies'>;navigation?:SidebarNavigation;blocked:boolean;navigationBlocked?:boolean;pendingConversation?:{projectId:string;conversationId:string}|null;chatUnavailable?:boolean;modelControl:ReactNode;headerExtra:ReactNode;notice:ReactNode;pendingSlot:ReactNode;canvasState?:{artifacts?:Artifact[];canvas?:Canvas|null};workbench?:{projectId:string;sessionId:string;store:WorkbenchStore;ready?:boolean};workspace?:{current:Workspace;items:Workspace[];status:string;onSelect:(id:string)=>void}};
+export const WorkbenchContext=createContext<WorkbenchConfig|null>(null);
+export function useWorkbenchView(){const value=useContext(WorkbenchContext);if(!value)throw new Error('Missing Raccoon workbench context');return value;}

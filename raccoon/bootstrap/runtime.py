@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import Protocol
 
-from raccoon.application.conversations.model_switching import ROUTING_MODEL_REF, create_routing_model, model_request_options
+from raccoon.application.conversations.model_switching import create_auxiliary_models, model_request_options
 from raccoon.runtime.processes import ProcessManager
 from raccoon.modules.agent.runtime_capabilities import AgentRuntimeCapabilities
 from raccoon.modules.memory.config import load_memory_config
@@ -129,9 +129,7 @@ def create_runtime(
             provider = create_provider_for_model(resolved_app_config, selected_profile)
         except ProviderConfigError as error:
             raise ValueError(str(error)) from error
-    routing_provider, routing_request_options = create_routing_model(
-        resolved_app_config, model_catalog.models.get(ROUTING_MODEL_REF),
-    )
+    auxiliary_models = create_auxiliary_models(resolved_app_config)
     routing_timeout_seconds: float | None = None
     routing_timeout_raw = resolved_app_config.get_config_value("event_routing_timeout_seconds")
     if routing_timeout_raw is not None:
@@ -204,8 +202,7 @@ def create_runtime(
             limits=None,
             memory_service=memory_service,
             request_options=model_request_options(selected_profile),
-            routing_provider=routing_provider,
-            routing_request_options=routing_request_options,
+            auxiliary_models=auxiliary_models,
             routing_timeout_seconds=routing_timeout_seconds,
             context_window=selected_profile.context_window if selected_profile is not None else None,
             background_manager=background_manager,

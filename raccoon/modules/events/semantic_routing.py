@@ -223,14 +223,13 @@ class MessageRouteClassifier:
 
 def build_event_router(runner) -> MessageRouteClassifier | None:
     """使用会话持有的辅助模型进行分派。"""
-    provider = getattr(runner, "routing_provider", None)
+    models = getattr(runner, "auxiliary_models", None)
+    provider = models.message_routing if models else None
     if provider is None:
         return None
-    options = getattr(runner, "routing_request_options", None)
     timeout = getattr(runner, "routing_timeout_seconds", None)
     return MessageRouteClassifier(
         provider,
-        request_options=options,
         timeout_seconds=timeout if timeout is not None else CLASSIFIER_TIMEOUT,
     )
 

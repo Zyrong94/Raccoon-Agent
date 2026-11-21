@@ -2,11 +2,36 @@
 
 import pytest
 
+from raccoon.application.conversations.model_switching import create_auxiliary_models
 from raccoon.bootstrap.runtime import create_runtime
 from raccoon.config.settings import AppConfig
 from raccoon.integrations.mcp.models import McpServerStatus, McpToolDescription
 from tests.runtime_fixtures import FakeMcpManager
 from tests.scripted_providers import FakeProvider
+
+
+def test_routing_environment_uses_the_configured_model_without_a_catalog_entry():
+    config = AppConfig(env={
+        "RACCOON_MESSAGE_ROUTING_API_KEY": "offline",
+        "RACCOON_MESSAGE_ROUTING_BASE_URL": "https://routing.example/v1",
+        "RACCOON_MESSAGE_ROUTING_MODEL": "vendor/quick",
+    })
+    models = create_auxiliary_models(config)
+    provider = models.message_routing
+    assert provider.model == "vendor/quick"
+    assert provider._base_url == "https://routing.example/v1"
+    assert provider._api_key == "offline"
+    assert models.permission_review is None
+    assert models.context_summary is None
+
+
+def test_partial_routing_environment_reports_missing_fields_without_the_key():
+    config = AppConfig(env={"RACCOON_PERMISSION_REVIEW_API_KEY": "private-test-value"})
+    with pytest.raises(ValueError) as error:
+        create_auxiliary_models(config)
+    assert "RACCOON_PERMISSION_REVIEW_BASE_URL" in str(error.value)
+    assert "RACCOON_PERMISSION_REVIEW_MODEL" in str(error.value)
+    assert "private-test-value" not in str(error.value)
 
 
 def test_runtime_lists_mcp_tools_and_closes_the_connection_once(tmp_path):
@@ -44,15 +69,17 @@ def test_failed_session_assembly_closes_the_mcp_connection(tmp_path):
     assert manager.connect_calls == manager.close_calls == 1
 
 
-def test_runtime_uses_the_fixed_deepseek_model_for_internal_requests(tmp_path):
-    models = {
-        "providers": {"deepseek": {"base_url": "https://example.test/v1", "api_key_env": "TEST_DEEPSEEK_KEY"}},
-        "models": {"deepseek/deepseek-flash": {"request": {"max_tokens": 1024}}},
-    }
+def test_runtime_uses_three_independent_models_for_internal_requests(tmp_path):
+    roles = ("message_routing", "permission_review", "context_summary")
+    env = {}
+    for role in roles:
+        prefix = "RACCOON_" + role.upper()
+        env[prefix + "_API_KEY"] = "offline-" + role
+        env[prefix + "_BASE_URL"] = "https://example.test/" + role
+        env[prefix + "_MODEL"] = "model-" + role
     config = AppConfig(
-        env={"TEST_DEEPSEEK_KEY": "offline"},
+        env=env,
         project_config={"memory": {"enabled": False}, "event_routing_model": "legacy/other"},
-        model_config=models,
     )
     provider = FakeProvider([])
     runtime = create_runtime(
@@ -61,11 +88,11 @@ def test_runtime_uses_the_fixed_deepseek_model_for_internal_requests(tmp_path):
     )
     try:
         assert runtime.provider is provider
-        assert (runtime.routing_provider.name, runtime.routing_provider.model) == ("deepseek", "deepseek-flash")
-        assert runtime.routing_request_options.max_tokens == 1024
-
-        runtime.update_model_catalog({"providers": models["providers"], "models": {}})
-        assert runtime.routing_provider is None
-        assert runtime.routing_request_options is None
+        runtime.update_model_catalog({})
+        for role in roles:
+            model = getattr(runtime.auxiliary_models, role)
+            assert model.model == "model-" + role
+            assert model._api_key == "offline-" + role
+            assert model._base_url == "https://example.test/" + role
     finally:
         runtime.close()

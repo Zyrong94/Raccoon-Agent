@@ -33,7 +33,7 @@ from raccoon.modules.context.summary import SummaryError
 from raccoon.modules.context.token_budget import ContextBudget, build_context_budget
 from raccoon.modules.sessions.user_attachments import UserAttachment, resolve_queued_attachments
 from raccoon.modules.permissions.types import PermissionRequest
-from raccoon.runtime.model_provider import ChatProvider
+from raccoon.runtime.model_provider import AuxiliaryModels, ChatProvider
 from raccoon.runtime.model_errors import ProviderError
 from raccoon.runtime.model_types import ChatRequest, ChatResponse, MainRequestOptions, ToolCall
 from raccoon.modules.tools.types import Tool, ToolResult, make_error_result, make_text_result
@@ -83,8 +83,7 @@ class AgentRun:
         run_phase_handler: Callable[[AgentRunPhase | None], None] | None = None,
         cancellation_token: CancellationToken | None = None,
         request_options: MainRequestOptions | None = None,
-        routing_provider: ChatProvider | None = None,
-        routing_request_options: MainRequestOptions | None = None,
+        auxiliary_models: AuxiliaryModels = AuxiliaryModels(),
         routing_timeout_seconds: float | None = None,
         context_window: int | None = None,
         background_manager: BackgroundJobManager | None = None,
@@ -117,9 +116,7 @@ class AgentRun:
         self._projected_native_completions: dict[str, dict[str, str]] = {}
         self._native_calls_started: set[str] = set()
         self.request_options = request_options or MainRequestOptions()
-        # 独立路由模型同时用于摘要和 auto 审核；未配置时才回落主模型。
-        self.routing_provider = routing_provider
-        self.routing_request_options = routing_request_options
+        self.auxiliary_models = auxiliary_models
         self.routing_timeout_seconds = routing_timeout_seconds
         self.context_window = context_window
         self.context_builder = context_builder or ContextBuilder()
@@ -577,14 +574,14 @@ class AgentRun:
         preparation = prepare_compaction(view, self.compaction_settings, budget.input_tokens)
         if preparation is None:
             return None
-        if self.routing_provider is None:
+        if self.auxiliary_models.context_summary is None:
             if reason == "threshold":
                 return None
-            raise SummaryError("上下文摘要需要配置 DeepSeek Flash")
+            raise SummaryError("上下文摘要需要配置 .env 中的 RACCOON_CONTEXT_SUMMARY_*")
         self.session.store.append_event(self.session.data, "compaction_started", {"reason": reason})
         task = asyncio.create_task(generate_compaction(
-            preparation, session_id=view.session_id, provider=self.routing_provider,
-            request_options=self.routing_request_options or MainRequestOptions(), instructions=instructions,
+            preparation, session_id=view.session_id, provider=self.auxiliary_models.context_summary,
+            request_options=MainRequestOptions(), instructions=instructions,
         ))
         try:
             while not task.done():

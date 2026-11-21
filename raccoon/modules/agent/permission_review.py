@@ -12,7 +12,7 @@ from raccoon.modules.permissions.types import PermissionAction, PermissionDecisi
 from raccoon.modules.tools.review import PrewriteReview
 from raccoon.modules.tools.types import Tool
 from raccoon.runtime.cancellation import AgentCancelledError
-from raccoon.runtime.model_types import ChatMessage, ChatRequest, MainRequestOptions, ToolCall
+from raccoon.runtime.model_types import ChatMessage, ChatRequest, ToolCall
 
 if TYPE_CHECKING:
     from raccoon.modules.agent.run import AgentRun
@@ -144,9 +144,9 @@ async def review_tool_operation(
     loop: AgentRun, tool: Tool, call: ToolCall, request: PermissionRequest,
     review: PrewriteReview | None = None,
 ) -> PermissionDecision:
-    """Use the routing model for review and ask the user when it is unavailable."""
+    """Use the permission review model or ask the user when it is unavailable."""
     decision = PermissionDecision(kind=PermissionDecisionKind.ASK, reason="自动审核不可用，需要人工确认。")
-    provider = loop.routing_provider
+    provider = loop.auxiliary_models.permission_review
     if provider is None:
         return decision
     payload = build_review_payload(loop, tool, call, request, review)
@@ -165,10 +165,9 @@ async def review_tool_operation(
         decision.reason = "完整操作或授权上下文超过自动审核输入限制，需要人工确认。"
         return decision
 
-    options = loop.routing_request_options or MainRequestOptions()
     model_request = ChatRequest(
         messages=[ChatMessage(role="system", content=REVIEW_POLICY), ChatMessage(role="user", content=encoded)],
-        tools=[], tool_choice="none", **options.as_chat_request_kwargs(),
+        tools=[], tool_choice="none",
     )
     loop._check_cancelled()
     loop._check_turn_timeout()

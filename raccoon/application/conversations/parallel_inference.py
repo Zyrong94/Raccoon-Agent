@@ -33,7 +33,7 @@ from raccoon.modules.permissions.delegation import DelegatedPermissionManager
 from raccoon.modules.permissions.manager import PermissionManager
 from raccoon.modules.permissions.policy import DefaultPermissionPolicy
 from raccoon.modules.permissions.types import PermissionMode
-from raccoon.runtime.model_provider import ChatProvider
+from raccoon.runtime.model_provider import AuxiliaryModels, ChatProvider
 from raccoon.runtime.model_types import MainRequestOptions
 from raccoon.modules.tools.builtin import create_builtin_registry
 from raccoon.modules.tools.types import Tool
@@ -84,7 +84,7 @@ class ParallelBranchRunner:
         limits: AgentLoopLimits | None = None,
         user_timezone: str | None = None,
         provider_resolver: Any | None = None,
-        routing_provider_resolver: Callable | None = None,
+        auxiliary_models: AuxiliaryModels = AuxiliaryModels(),
     ) -> None:
         self.session_id = session_id
         self.store = store
@@ -92,7 +92,7 @@ class ParallelBranchRunner:
         self.provider = provider
         self.request_options = request_options or MainRequestOptions()
         self.provider_resolver = provider_resolver
-        self.routing_provider_resolver = routing_provider_resolver
+        self.auxiliary_models = auxiliary_models
         self.permission_manager = permission_manager or PermissionManager(
             policy=DefaultPermissionPolicy(self.project_root),
         )
@@ -307,13 +307,9 @@ class ParallelBranchRunner:
             enable_process_tools=False,
             enable_native_async_tools=False,
         )
-        routing_provider, routing_options = None, None
-        if self.routing_provider_resolver is not None:
-            routing_provider, routing_options = self.routing_provider_resolver()
         return SessionRuntime(
             session=child,
-            routing_provider=routing_provider,
-            routing_request_options=routing_options,
+            auxiliary_models=self.auxiliary_models,
             provider=provider,
             tools=list(child.tool_registry.tools()),
             request_options=request_options,

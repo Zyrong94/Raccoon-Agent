@@ -95,7 +95,8 @@ def test_incomplete_summary_is_rejected_without_changing_history(content, reason
     assert view == original
 
 
-def test_compaction_uses_only_the_routing_model_and_its_request_options(tmp_path):
+def test_compaction_uses_only_the_context_summary_model(tmp_path):
+    from raccoon.runtime.model_provider import AuxiliaryModels
     from raccoon.bootstrap.agent_session import new_session
     from raccoon.modules.agent.run import AgentRun
     from raccoon.modules.sessions.store import SessionStore
@@ -112,17 +113,16 @@ def test_compaction_uses_only_the_routing_model_and_its_request_options(tmp_path
     settings = CompactionSettings(keep_recent_tokens=1)
 
     without_summary = AgentRun(session=session, provider=main, request_options=main_options, compaction_settings=settings)
-    with pytest.raises(SummaryError, match="DeepSeek Flash"):
+    with pytest.raises(SummaryError, match="RACCOON_CONTEXT_SUMMARY"):
         asyncio.run(without_summary.compact_context())
 
     run = AgentRun(
         session=session, provider=main, request_options=main_options,
-        routing_provider=summary, routing_request_options=MainRequestOptions(max_tokens=1024),
+        auxiliary_models=AuxiliaryModels(context_summary=summary),
         compaction_settings=settings,
     )
     result = asyncio.run(run.compact_context())
 
     assert result.summary == "Earlier conversation summary"
     assert main.requests == []
-    assert summary.requests[0].max_tokens == 1024
     assert "reasoning_effort" not in summary.requests[0].extra_body

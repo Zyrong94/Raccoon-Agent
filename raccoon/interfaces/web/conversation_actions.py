@@ -78,7 +78,7 @@ def create_parallel_runner(display):
         sandbox_access=getattr(session, 'sandbox_access', None),
         parent_tool_names=tool_names,
         user_timezone=getattr(session, 'user_timezone', None),
-        routing_provider_resolver=lambda: (display.runtime.routing_provider, display.runtime.routing_request_options),
+        auxiliary_models=display.runtime.auxiliary_models,
         provider_resolver=lambda: (display.runtime.provider, display.runtime.request_options),
     )
 

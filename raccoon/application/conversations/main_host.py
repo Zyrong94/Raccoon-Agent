@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from uuid import uuid4
+from raccoon.runtime.model_provider import AuxiliaryModels
 
 
 from raccoon.application.conversations.parallel_inference import ParallelBranchRunner
@@ -57,8 +58,7 @@ class PersonalChatHost:
             sandbox_access=getattr(parent_session, 'sandbox_access', None),
             parent_tool_names=parent_tool_names,
             user_timezone=getattr(parent_session, 'user_timezone', None),
-            routing_provider_resolver=lambda: (getattr(self.bundle, 'routing_provider', None),
-                                               getattr(self.bundle, 'routing_request_options', None)),
+            auxiliary_models=getattr(self.bundle, "auxiliary_models", AuxiliaryModels()),
             provider_resolver=lambda: (self.bundle.provider,
                                        getattr(self.bundle, 'request_options', None)),
         )

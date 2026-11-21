@@ -16,7 +16,7 @@ from typing import Any
 
 import anyio
 
-from raccoon.application.conversations.model_switching import ROUTING_MODEL_REF, create_routing_model, model_request_options
+from raccoon.application.conversations.model_switching import model_request_options
 from raccoon.config.models import ModelCatalogError
 from raccoon.integrations.providers.factory import create_provider_for_model
 
@@ -32,7 +32,7 @@ from raccoon.modules.permissions.sandbox_access import SandboxAccessMode
 from raccoon.runtime.user_input import UserInputRequest
 from raccoon.modules.context.context_builder import ContextBuilder
 from raccoon.modules.context.compaction import CompactionSettings
-from raccoon.runtime.model_provider import ChatProvider
+from raccoon.runtime.model_provider import AuxiliaryModels, ChatProvider
 from raccoon.runtime.model_types import ChatResponse, MainRequestOptions
 from raccoon.modules.tools.types import Tool
 
@@ -51,8 +51,7 @@ class SessionRuntime:
     memory_service: Any | None = None
     limits: AgentLoopLimits | None = None
     request_options: MainRequestOptions = field(default_factory=MainRequestOptions)
-    routing_provider: ChatProvider | None = None
-    routing_request_options: MainRequestOptions | None = None
+    auxiliary_models: AuxiliaryModels = field(default_factory=AuxiliaryModels)
     routing_timeout_seconds: float | None = None
     context_window: int | None = None
     active_run: AgentRun | None = field(default=None, init=False, repr=False)
@@ -125,17 +124,10 @@ class SessionRuntime:
                 if effort not in profile.supported_reasoning_efforts:
                     raise ModelCatalogError("当前推理强度不受新模型配置支持，请重新选择")
                 options = replace(options, extra_body={**options.extra_body, "reasoning_effort": effort})
-        routing_profile = catalog.models.get(ROUTING_MODEL_REF)
-        routing_changed = routing_profile != self.model_catalog.models.get(ROUTING_MODEL_REF)
-        if routing_changed:
-            routing_provider, routing_options = create_routing_model(app_config, routing_profile)
         self.app_config = app_config
         self.model_catalog = catalog
         if provider is not None:
             self.set_model(provider, request_options=options, context_window=profile.context_window)
-        if routing_changed:
-            self.routing_provider = routing_provider
-            self.routing_request_options = routing_options
 
     def switch_model(self, spec: str) -> None:
         ref = spec.strip()
@@ -283,8 +275,7 @@ class SessionRuntime:
             "request_input": self._request_input if self.runtime_capabilities.allow_user_input and self.input_event_handler is not None else None,
             "provider": provider,
             "request_options": request_options,
-            "routing_provider": self.routing_provider,
-            "routing_request_options": self.routing_request_options,
+            "auxiliary_models": self.auxiliary_models,
             "routing_timeout_seconds": self.routing_timeout_seconds,
             "context_window": context_window,
             "tools": self._current_tools(),

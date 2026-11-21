@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any
 
 from raccoon.runtime.model_types import ChatMessage, ChatRequest, ChatResponse
@@ -32,4 +33,11 @@ class ChatProvider(ABC):
     def estimate_replay_tokens(self, messages: list[ChatMessage]) -> int:
         """Estimate opaque replay overhead not represented by visible message text."""
         return 0
+
+
+@dataclass(frozen=True, slots=True)
+class AuxiliaryModels:
+    message_routing: ChatProvider | None = None
+    permission_review: ChatProvider | None = None
+    context_summary: ChatProvider | None = None
 

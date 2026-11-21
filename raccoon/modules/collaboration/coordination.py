@@ -83,8 +83,8 @@ def _runtime(parent, subagent):
     return SessionRuntime(session=subagent, provider=parent.provider,
         tools=subagent.tool_registry.tools(supplied_only=True),
         limits=AgentLoopLimits(config.max_tool_rounds, config.max_provider_calls, config.max_turn_seconds),
-        request_options=parent.request_options, routing_provider=parent.routing_provider,
-        routing_request_options=parent.routing_request_options, context_window=parent.context_window,
+        request_options=parent.request_options, auxiliary_models=parent.auxiliary_models,
+        context_window=parent.context_window,
         runtime_capabilities=AgentRuntimeCapabilities(allow_user_input=False, enable_delegate_tool=False),
         execution_root=subagent.store.root)
 

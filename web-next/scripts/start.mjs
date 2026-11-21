@@ -13,6 +13,7 @@ export function parseArguments(args) {
   for (let index = 0; index < args.length; index++) {
     const flag = args[index];
     if (flag === "--dev") { options.dev = true; continue; }
+    if (flag === "--open") { options.open = true; continue; }
     const key = { "--project": "project", "--data-root": "dataRoot", "--port": "port", "--backend-port": "backendPort" }[flag];
     if (!key) throw new Error(`Unknown option: ${flag}`);
     const value = args[++index];
@@ -102,7 +103,15 @@ async function main() {
       env: { ...process.env, RACCOON_BACKEND_URL: `http://127.0.0.1:${options.backendPort}` },
     });
     await waitReady(`http://127.0.0.1:${options.port}`, frontend);
-    if (!stopping) console.log(`Raccoon: http://127.0.0.1:${options.port} (project: ${project})`);
+    if (!stopping) {
+      const url = `http://127.0.0.1:${options.port}`;
+      console.log(`Raccoon: ${url} (project: ${project})`);
+      if (options.open) {
+        const browser = spawn(python, ["-m", "webbrowser", "-t", url], { windowsHide: true, stdio: "ignore" });
+        browser.on("error", () => console.error(`请在浏览器中打开 ${url}`));
+        browser.unref();
+      }
+    }
   } catch (error) {
     console.error(error.message);
     await shutdown(1);

@@ -12,6 +12,8 @@ test("parses project and data root and loopback server ports", () => {
   assert.equal(options.port, 3011);
   assert.equal(options.backendPort, 8767);
   assert.equal(options.dev, true);
+  assert.equal(parseArguments(["--open"]).open, true);
+  assert.ok(!parseArguments([]).open);
 });
 
 test("rejects invalid or colliding ports and unknown flags before launch", () => {

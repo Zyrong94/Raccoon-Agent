@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "raccoon"
 version = "0.1.0"
-description = "A local Python coding agent with a web workbench."
+description = "An event-driven, asynchronous agent that runs in a local workspace with a web workbench."
 requires-python = ">=3.11"
 dependencies = [
     "mem0ai==2.2.1",

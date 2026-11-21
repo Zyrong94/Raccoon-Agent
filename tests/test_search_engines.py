@@ -36,7 +36,7 @@ def test_exa_search_returns_structured_results(monkeypatch):
             '{"results":['
             '{"title":"Raccoon docs","url":"https://example.com/docs",'
             '"text":"Full page text.","extract":"Old extract",'
-            '"highlights":["A coding agent.","Runs locally."],"publishedDate":"2026-10-20"},'
+            '"highlights":["An event-driven, asynchronous agent.","Runs locally."],"publishedDate":"2026-10-20"},'
             '{"title":"Second page","url":"https://example.com/second"}'
             ']}'
         )
@@ -45,14 +45,14 @@ def test_exa_search_returns_structured_results(monkeypatch):
     monkeypatch.setattr(exa_module.request, "urlopen", fake_urlopen)
 
     engine = ExaSearch(timeout_seconds=7)
-    results = asyncio.run(engine.search("coding agents", num_results=2))
+    results = asyncio.run(engine.search("event-driven agents", num_results=2))
 
     assert isinstance(engine, SearchEngine)
     assert results == [
         SearchResult(
             title="Raccoon docs",
             url="https://example.com/docs",
-            snippet="A coding agent. Runs locally.",
+            snippet="An event-driven, asynchronous agent. Runs locally.",
             engine="exa",
             published_date="2026-10-20",
             content="Full page text.",
@@ -61,7 +61,7 @@ def test_exa_search_returns_structured_results(monkeypatch):
     ]
     assert captured["request"].full_url == "https://api.exa.ai/search"
     assert captured["request"].get_header("X-api-key") == "secret-token"
-    assert captured["request"].data == b'{"query":"coding agents","numResults":2,"type":"auto","contents":{"text":{"maxCharacters":20000}}}'
+    assert captured["request"].data == b'{"query":"event-driven agents","numResults":2,"type":"auto","contents":{"text":{"maxCharacters":20000}}}'
     assert captured["timeout"] == 7
 
 
@@ -166,7 +166,7 @@ def test_tavily_search_returns_structured_results(monkeypatch):
     monkeypatch.setattr(tavily_module.request, "urlopen", fake_urlopen)
 
     engine = TavilySearch(timeout_seconds=7)
-    results = asyncio.run(engine.search("coding agents", num_results=2))
+    results = asyncio.run(engine.search("event-driven agents", num_results=2))
 
     assert isinstance(engine, SearchEngine)
     assert results == [
@@ -182,7 +182,7 @@ def test_tavily_search_returns_structured_results(monkeypatch):
     ]
     assert captured["request"].full_url == "https://api.tavily.com/search"
     assert captured["request"].get_header("Authorization") == "Bearer secret-token"
-    assert captured["request"].data == b'{"query":"coding agents","max_results":2,"include_raw_content":true,"include_published_date":true}'
+    assert captured["request"].data == b'{"query":"event-driven agents","max_results":2,"include_raw_content":true,"include_published_date":true}'
     assert captured["timeout"] == 7
 
 

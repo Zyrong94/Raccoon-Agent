@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
+from raccoon.app.payloads import EventInput
 from raccoon.modules.sessions.models import utc_now_iso
 
 
@@ -22,6 +23,9 @@ class Event:
     payload: dict[str, Any] = field(default_factory=dict)
     session_id: str | None = None
     created_at: str = field(default_factory=utc_now_iso)
+
+    # Internal input, parsed on admission. It is not part of the wire format.
+    input: EventInput | None = field(default=None, init=False, repr=False, compare=False)
 
     @classmethod
     def create(cls, *, type: str, source: str, payload: dict[str, Any] | None = None) -> Event:

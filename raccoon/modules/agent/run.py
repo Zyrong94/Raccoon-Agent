@@ -92,7 +92,8 @@ class AgentRun:
         runtime_capabilities: AgentRuntimeCapabilities | None = None,
         memory_service=None,
         initial_input=None,
-        take_inputs=None,
+        take_pending_inputs=None,
+        try_close_input=None,
         native_async_tools: bool = False,
     ) -> None:
         self.application = application
@@ -104,7 +105,8 @@ class AgentRun:
         self.tools_provider = tools_provider
         self.tool_catalog_status = tool_catalog_status
         self.initial_input = initial_input
-        self.take_inputs = take_inputs
+        self.take_pending_inputs = take_pending_inputs
+        self.try_close_input = try_close_input
         self.memory_service = memory_service if session.subagent_config is None else None
         self._memory_user_text = ""
         self._memory_message_id = None
@@ -164,7 +166,7 @@ class AgentRun:
         self,
         request: UserInputRequest,
         token: CancellationToken | None,
-        notify: Callable[[UserInputRequest | None, str | None], None],
+        notify: Callable[[UserInputRequest | None, str | None], None] | None,
     ) -> str:
         """只保存当前进程的交互等待。原工具参数和 review 留在调用栈。"""
         future = asyncio.get_running_loop().create_future()
@@ -174,7 +176,8 @@ class AgentRun:
             self.pending_input = request
             self._input_future = future
         try:
-            await asyncio.to_thread(notify, request, None)
+            if notify is not None:
+                await asyncio.to_thread(notify, request, None)
             while not future.done():
                 if token is not None:
                     token.raise_if_cancelled()
@@ -182,7 +185,8 @@ class AgentRun:
             if token is not None:
                 token.raise_if_cancelled()
             answer = future.result()
-            await asyncio.to_thread(notify, request, answer)
+            if notify is not None:
+                await asyncio.to_thread(notify, request, answer)
             return answer
         finally:
             with self._input_lock:
@@ -190,7 +194,8 @@ class AgentRun:
                 self._input_future = None
                 if not future.done():
                     future.cancel()
-            await asyncio.to_thread(notify, None, None)
+            if notify is not None:
+                await asyncio.to_thread(notify, None, None)
 
 
     def answer_input(self, request_id: str, answer: str) -> None:
@@ -424,7 +429,7 @@ class AgentRun:
     ) -> PreparedMainRequest:
         self._repair_interrupted_tool_calls_before_provider_request()
         self._check_cancelled()
-        self._append_incoming_messages()
+        self._apply_pending_inputs()
         self._append_background_notifications()
         definitions = self._provider_tool_definitions()
         self._append_status_if_changed(runtime_instruction)
@@ -443,10 +448,10 @@ class AgentRun:
             background_result_part_ids=self._pending_background_part_ids(view),
         )
 
-    def _append_incoming_messages(self) -> None:
-        if self.take_inputs is None or self.pending_input is not None:
+    def _apply_pending_inputs(self) -> None:
+        if self.take_pending_inputs is None or self.pending_input is not None:
             return
-        for message in self.take_inputs():
+        for message in self.take_pending_inputs():
             self._check_cancelled()
             if isinstance(message, CompletionInput):
                 self._append_queued_background_result(message)
@@ -1104,6 +1109,9 @@ async def run_agent(run: AgentRun) -> ChatResponse:
                     runtime_instruction = run._final_reconciliation_instruction()
                     if runtime_instruction is not None:
                         continue
+                    if response.finish_reason in (None, "stop") and run.try_close_input is not None:
+                        if not run.try_close_input():
+                            continue
                     break
         except _AgentLoopLimitReached as error:
             response = run._limit_response(error.reason)

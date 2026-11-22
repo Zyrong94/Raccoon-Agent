@@ -227,7 +227,7 @@ def test_qq_delivers_a_live_session_response_and_keeps_its_history(tmp_path):
         try:
             state.set("owner", "owner")
             await bot.receive(packet("请回答"))
-            await asyncio.wait_for(service.wait(service.history(key)[0]), timeout=5)
+            await asyncio.wait_for(service.wait_for_event(service.history(key)[0]), timeout=5)
             assert state.pending_outbound()[-1]["content"] == "QQ reply"
             roles = [
                 message.role for message in store.load("main").messages

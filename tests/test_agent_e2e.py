@@ -27,7 +27,7 @@ def test_agent_reads_a_file_and_resumes_the_same_history(tmp_path):
         )
         try:
             receipt = service.submit_event(event, key)
-            return await asyncio.wait_for(service.wait(receipt), timeout=5)
+            return await asyncio.wait_for(service.wait_for_event(receipt), timeout=5)
         finally:
             await service.close()
 

@@ -41,9 +41,9 @@ def test_timer_waits_for_current_chat_and_uses_the_same_session(tmp_path):
             assert len(provider.requests) == 1
             provider.release.set()
 
-            await asyncio.wait_for(service.wait(chat), timeout=5)
+            await asyncio.wait_for(service.wait_for_event(chat), timeout=5)
             timer = next(receipt for receipt in service.history(key) if receipt.event.id == dispatched["event_id"])
-            result = await asyncio.wait_for(service.wait(timer), timeout=5)
+            result = await asyncio.wait_for(service.wait_for_event(timer), timeout=5)
             assert result.content == "Timer done"
             assert schedule.get_run(run["id"])["status"] == "succeeded"
             history = [

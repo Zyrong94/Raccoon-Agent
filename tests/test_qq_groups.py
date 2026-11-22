@@ -121,7 +121,7 @@ def test_group_chat_keeps_replies_and_session_history_separate(tmp_path):
             assert contexts["a"].session_id != contexts["b"].session_id
             for group, context in contexts.items():
                 key = context.runtime.key_for_session(context.session_id)
-                await asyncio.wait_for(context.runtime.wait(context.runtime.history(key)[0]), timeout=5)
+                await asyncio.wait_for(context.runtime.wait_for_event(context.runtime.history(key)[0]), timeout=5)
                 reply = context.state.pending_outbound()[-1]
                 assert reply["openid"] == group and reply["target_kind"] == "group"
                 assert reply["content"] == "Group reply"
@@ -172,7 +172,7 @@ def test_only_the_bound_group_member_can_approve_a_real_write(tmp_path):
                 context.state.outbound_result(context.state.pending_outbound()[-1]["id"])
             await groups.receive(group_packet(command, message_id="approved")["d"])
             key = context.runtime.key_for_session(context.session_id)
-            await asyncio.wait_for(context.runtime.wait(context.runtime.history(key)[0]), timeout=5)
+            await asyncio.wait_for(context.runtime.wait_for_event(context.runtime.history(key)[0]), timeout=5)
             assert (tmp_path / "note.txt").read_text(encoding="utf-8") == "approved"
         finally:
             await groups.close()

@@ -8,9 +8,9 @@ Raccoon 正在处理任务时，工作台里新发来的消息默认排队。[�
 
 ![Raccoon-Agent 工作流程：会话调度事件，主模型按需调用经过权限检查的工具，工具结果进入下一轮推理，最终回复写回工作台。](assets/raccoon-agent-workflow.png)
 
-## 技术文档
+## 模块指南
 
-下表对应上方流程图的三个分区。各篇将结合流程图介绍关键对象、函数及设计取舍，目前正文待补。
+每篇文档都详细介绍一个主题，按需查阅即可。
 
 <table>
   <thead>
@@ -18,55 +18,51 @@ Raccoon 正在处理任务时，工作台里新发来的消息默认排队。[�
   </thead>
   <tbody>
     <tr>
-      <td rowspan="4"><strong>事件来源与工作台</strong></td>
-      <td>工作台消息、附件</td>
-      <td><a href="docs/01-messages.md">Messages</a></td>
-    </tr>
-    <tr>
-      <td>定时任务、到期事件</td>
-      <td><a href="docs/02-scheduling.md">Scheduling</a></td>
-    </tr>
-    <tr>
-      <td>后台任务、完成通知</td>
-      <td><a href="docs/03-background-tasks.md">Background Tasks</a></td>
-    </tr>
-    <tr>
-      <td>SSE 事件流、任务进度、回复展示</td>
-      <td><a href="docs/04-event-stream.md">Event Stream</a></td>
-    </tr>
-    <tr>
       <td rowspan="5"><strong>会话调度与模型推理</strong></td>
-      <td>消息排队、任务追加指令、任务中断、并行答复</td>
-      <td><a href="docs/05-routing.md">Routing</a></td>
+      <td>会话调度、消息排队、忙时分流</td>
+      <td><a href="docs/01-session-routing.md">Session Routing</a></td>
     </tr>
     <tr>
       <td>Agent 主循环、结束条件</td>
-      <td><a href="docs/06-agent-loop.md">Agent Loop</a></td>
+      <td><a href="docs/02-agent-loop.md">Agent Loop</a></td>
+    </tr>
+    <tr>
+      <td>会话历史存取、事件回放</td>
+      <td><a href="docs/03-session-history.md">Session History</a></td>
     </tr>
     <tr>
       <td>上下文组装、Token 预算、历史摘要</td>
-      <td><a href="docs/07-context.md">Context</a></td>
+      <td><a href="docs/04-context.md">Context</a></td>
     </tr>
     <tr>
       <td>Responses API 请求、响应解析</td>
-      <td><a href="docs/08-responses-api.md">Responses API</a></td>
-    </tr>
-    <tr>
-      <td>会话历史存取</td>
-      <td><a href="docs/09-session-history.md">Session History</a></td>
+      <td><a href="docs/05-responses-api.md">Responses API</a></td>
     </tr>
     <tr>
       <td rowspan="3"><strong>工具执行与结果</strong></td>
-      <td>工具注册、参数定义</td>
-      <td><a href="docs/10-tool-registry.md">Tool Registry</a></td>
+      <td>工具注册、参数定义、按需加载</td>
+      <td><a href="docs/06-tool-discovery.md">Tool Discovery</a></td>
     </tr>
     <tr>
       <td>工具权限、自动审核、用户确认</td>
-      <td><a href="docs/11-permissions.md">Permissions</a></td>
+      <td><a href="docs/07-permissions.md">Permissions</a></td>
     </tr>
     <tr>
-      <td>工具执行、结果回写</td>
-      <td><a href="docs/12-tool-execution.md">Tool Execution</a></td>
+      <td>工具分派、执行结果回写</td>
+      <td><a href="docs/08-tool-execution.md">Tool Execution</a></td>
+    </tr>
+    <tr>
+      <td rowspan="3"><strong>事件来源与工作台</strong></td>
+      <td>工作台消息、附件、SSE 事件流</td>
+      <td><a href="docs/09-workbench-messages.md">Workbench Messages</a></td>
+    </tr>
+    <tr>
+      <td>定时任务、到期事件</td>
+      <td><a href="docs/10-scheduling.md">Scheduling</a></td>
+    </tr>
+    <tr>
+      <td>后台任务、完成通知</td>
+      <td><a href="docs/11-background-tasks.md">Background Tasks</a></td>
     </tr>
   </tbody>
 </table>

@@ -16,7 +16,7 @@ def cancel_session(web, project_id, session_id):
     key = web.session_key(project_id, session_id)
     run = web.conversations.runs.get(key)
     event = Event(id=uuid.uuid4().hex, type='run.cancel', source='web', session_id=session_id,
-                  payload={'run_id': run.receipt.event.id if run else None})
+                  payload={'run_id': run.initial_event.id if run else None})
     web.conversations.submit_event(event, key)
     web.publish_run_state(project_id, session_id)
 
@@ -24,7 +24,7 @@ def answer_question(display, request_id, answer):
     display.web.require_active_project(display._workspace_id(display.runtime.project_path))
     run = display.conversations.runs.get(display.key)
     event = Event(id=uuid.uuid4().hex, type='input.answer', source='web', session_id=display.key.session_id,
-        payload={'run_id': run.receipt.event.id if run else None, 'request_id': request_id, 'answer': answer})
+        payload={'run_id': run.initial_event.id if run else None, 'request_id': request_id, 'answer': answer})
     receipt = display.conversations.submit_event(event, display.key)
     if receipt.status == 'rejected':
         raise WorkbenchConflict(receipt.error)

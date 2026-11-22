@@ -57,7 +57,7 @@ class ScheduledTurn:
         task, run, event = self._record(run_id)
         if operation == 'scheduled_answer':
             active = self.application.runs.get(key)
-            if active is None or active.receipt.event.id != event.id or run['status'] != 'waiting':
+            if active is None or active.initial_event.id != event.id or run['status'] != 'waiting':
                 raise ScheduleConflict('当前运行不是该定时任务')
             self.store.answer(run_id, token=body['token'], request_id=body['request_id'], answer=body['answer'])
             self.application.answer_run(key.session_id, body['request_id'], body['answer'], key=key)
@@ -147,25 +147,35 @@ class ScheduledTurn:
         while any(job.status == 'running' for job in jobs):
             time.sleep(.01)
 
-    async def execute(self, turn, runner, execute_message):
-        event = turn.events[0]
+    async def execute(self, turn, runner, take_pending_inputs):
+        event = turn.initial_event
         run_id = event.payload.get('origin', {}).get('occurrence_id')
         task, run, canonical = self._record(run_id)
         if event.id != canonical.id or runner is not self.runner or not self.store.begin(canonical):
             raise ScheduleConflict('主会话定时执行已经开始或失效')
 
-        async def waiting(pending):
-            self.store.waiting(canonical, pending_snapshot(pending))
+        previous_handler = runner.input_event_handler
 
-        async def resumed(pending, answer):
-            self.store.resume_main(run_id, pending.id)
+        def notify(request, answer):
+            if previous_handler is not None:
+                previous_handler(request, answer)
+            if request is None:
+                return
+            if answer is None:
+                self.store.waiting(canonical, pending_snapshot(request))
+            else:
+                self.store.resume_main(run_id, request.id)
 
         try:
             with self._settings(task, runner), self._permissions(task, runner, run_id=run_id) as (scope, previous_jobs):
                 try:
                     try:
-                        result = await execute_message(TimerInput(event.id, task['id'], task['prompt']),
-                                                       on_waiting=waiting, on_resume=resumed)
+                        runner.input_event_handler = notify
+                        try:
+                            result = await runner.run_turn(TimerInput(event.id, task['id'], task['prompt']),
+                                                           take_pending_inputs, try_close_input=turn.try_close_input)
+                        finally:
+                            runner.input_event_handler = previous_handler
                         if scope is not None and (self._delegate_jobs(runner, previous_jobs) or has_pending_subagents(runner)):
                             raise RuntimeError('定时主助手结束时仍有本次委派任务未完成')
                     finally:

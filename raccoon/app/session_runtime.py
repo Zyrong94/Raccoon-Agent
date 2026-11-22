@@ -213,13 +213,7 @@ class SessionRuntime:
                 self.active_run = None
                 self._active_cancellation_token = None
 
-    def _start_turn(self, *, initial_input=None, take_inputs=None, token: CancellationToken | None = None) -> AgentRun:
-        token = token or self._begin_cancellable_turn()
-        loop = self.create_run(token, initial_input=initial_input, take_inputs=take_inputs)
-        self.active_run = loop
-        return loop
-
-    async def run_turn(self, initial_input, take_inputs) -> ChatResponse:
+    async def run_turn(self, initial_input, take_pending_inputs, *, try_close_input=None) -> ChatResponse:
         """执行一轮已由统一事件入口安排的输入。"""
         if self._active_cancellation_token is not None:
             raise ValueError("当前会话已有正在执行或等待回答的回合")
@@ -234,7 +228,9 @@ class SessionRuntime:
                     scope.enter_context(self.session.sandbox_access.use_mode(sandbox_mode))
                     if self.session.permission_manager is not None:
                         scope.enter_context(self.session.permission_manager.use_mode(mode))
-                run = self._start_turn(initial_input=initial_input, take_inputs=take_inputs, token=token)
+                run = self.create_run(token, initial_input=initial_input, take_pending_inputs=take_pending_inputs,
+                                      try_close_input=try_close_input)
+                self.active_run = run
                 return await run_agent(run)
 
         try:
@@ -265,14 +261,14 @@ class SessionRuntime:
 
         return self.tools_provider() if self.tools_provider is not None else self.tools
 
-    def create_run(self, cancellation_token: CancellationToken, *, initial_input=None, take_inputs=None) -> AgentRun:
+    def create_run(self, cancellation_token: CancellationToken, *, initial_input=None, take_pending_inputs=None, try_close_input=None) -> AgentRun:
         provider, request_options, context_window = self.provider, self.request_options, self.context_window
         if isinstance(initial_input, MessageInput) and initial_input.settings is not None:
             provider, request_options, context_window = self.model_for_turn(initial_input.settings.model_ref)
         kwargs = {
             "session": self.session,
             "application": self.application,
-            "request_input": self._request_input if self.runtime_capabilities.allow_user_input and self.input_event_handler is not None else None,
+            "request_input": self._request_input if self.runtime_capabilities.allow_user_input and (self.input_event_handler is not None or self.application is not None) else None,
             "provider": provider,
             "request_options": request_options,
             "auxiliary_models": self.auxiliary_models,
@@ -293,7 +289,8 @@ class SessionRuntime:
         }
         kwargs["response_handler"] = self.response_handler
         kwargs["initial_input"] = initial_input
-        kwargs["take_inputs"] = take_inputs
+        kwargs["take_pending_inputs"] = take_pending_inputs
+        kwargs["try_close_input"] = try_close_input
         native_async_tools = self.native_async_tools
         if provider is not self.provider:
             native_async_tools = (self.runtime_capabilities.enable_native_async_tools and self.background_manager is not None

@@ -9,6 +9,7 @@ from raccoon.modules.scheduling.store import ScheduleStore
 from raccoon.modules.sessions.store import SessionStore
 from raccoon.application.conversations.scheduled_main import ScheduledTurn
 from raccoon.runtime.model_types import ChatResponse
+from raccoon.runtime.user_input import UserInputRequest
 
 NOW = 1800000000.0
 
@@ -69,14 +70,26 @@ def test_scheduled_turn_uses_exact_prompt_and_records_only_status(tmp_path):
         event = store.take_pending()
         session = SimpleNamespace(store=SessionStore(tmp_path), session_id='origin', tool_registry=object(),
             scheduled_run_id=None, permission_manager=SimpleNamespace(policy=SimpleNamespace(project_root=tmp_path)))
-        runtime = SimpleNamespace(session=session, background_manager=None)
+        notifications = []
+        def previous_handler(request, answer):
+            notifications.append((request.id, answer))
+        runtime = SimpleNamespace(session=session, background_manager=None, input_event_handler=previous_handler)
         executor = ScheduledTurn(tmp_path, 'origin', None, runtime, store=store)
         received = []
-        async def execute(message, **callbacks):
+        async def execute(message, take_pending_inputs, *, try_close_input):
             received.append(message.text)
+            question = UserInputRequest("choice", "ask_user", "Continue?")
+            runtime.input_event_handler(question, None)
+            assert store.get_run(run["id"])["status"] == "waiting"
+            runtime.input_event_handler(question, "yes")
+            assert store.get_run(run["id"])["status"] == "running"
             assert session.scheduled_run_id == run['id']
             return ChatResponse(provider='fake', model='fake', content='ordinary chat output', finish_reason='stop')
-        result = asyncio.run(executor.execute(SimpleNamespace(events=[event]), runtime, execute))
+        runtime.run_turn = execute
+        turn = SimpleNamespace(initial_event=event, try_close_input=lambda: True)
+        result = asyncio.run(executor.execute(turn, runtime, lambda: ()))
+        assert runtime.input_event_handler is previous_handler
+        assert notifications == [("choice", None), ("choice", "yes")]
         assert result.content == 'ordinary chat output'
         assert received == [task['prompt']]
         assert session.scheduled_run_id is None

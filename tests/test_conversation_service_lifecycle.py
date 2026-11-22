@@ -21,7 +21,8 @@ def test_duplicate_message_is_queued_once_and_conflicting_content_is_rejected(tm
             assert service.submit_event(message('hello'), key) is receipt
             with pytest.raises(ValueError, match='同一事件 ID'):
                 service.submit_event(message('different'), key)
-            assert list(service.queues[key]) == [receipt]
+            assert list(service.queues[key]) == [receipt.event]
+            assert receipt.event.input.text == "hello"
         finally:
             await service.close()
     asyncio.run(run())

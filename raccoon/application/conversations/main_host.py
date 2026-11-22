@@ -267,7 +267,7 @@ class PersonalChatHost:
         elif operation == 'cancel':
             active = self.application.runs.get(self.key)
             event = Event(id=uuid4().hex, type='run.cancel', source='local', session_id=self.session_id,
-                          payload={'run_id': active.receipt.event.id if active else None})
+                          payload={'run_id': active.initial_event.id if active else None})
             self.application.submit_event(event, self.key)
             self.status = 'stopping' if self.application.busy(self.key) else 'interrupted'
 

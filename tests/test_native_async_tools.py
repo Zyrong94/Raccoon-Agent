@@ -93,7 +93,7 @@ def test_native_tool_result_reaches_the_model_before_final_reply(tmp_path):
             assert await asyncio.to_thread(entered.wait, 5)
             assert not receipt.finished.is_set()
             release.set()
-            result = await asyncio.wait_for(service.wait(receipt), timeout=5)
+            result = await asyncio.wait_for(service.wait_for_event(receipt), timeout=5)
             assert result.content == "Final reply"
             result_messages = [message for message in model.requests[-1].messages if message.tool_call_id == "native"]
             assert len(result_messages) == 1 and result_messages[0].content == "Native evidence"

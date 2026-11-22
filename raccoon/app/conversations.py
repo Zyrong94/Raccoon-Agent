@@ -9,11 +9,12 @@ import asyncio
 from collections import OrderedDict, deque
 from dataclasses import asdict, dataclass, field
 from copy import deepcopy
+from functools import partial
 from pathlib import Path
 from threading import Lock
 from typing import Any, Callable
 
-from raccoon.app.inputs import event_input, settle_cancelled_completion
+from raccoon.app.inputs import parse_event_input, settle_cancelled_completion
 from raccoon.modules.events.models import Event, EventError
 from raccoon.modules.events.sources import EventSourceAdapter
 
@@ -31,7 +32,7 @@ class SessionSnapshot:
 
 
 @dataclass(slots=True)
-class Receipt:
+class EventRecord:
     event: Event
     key: SessionKey
     status: str = "queued"
@@ -53,49 +54,54 @@ class SessionBinding:
     parallel_executor: Callable | None = None
     timer_executor: Callable | None = None
     unsubscribe: Callable | None = None
+    dispatch_requested: bool = False
 
 
 @dataclass(slots=True)
 class ActiveRun:
-    receipt: Receipt
+    initial_event: Event
+    key: SessionKey
     binding: SessionBinding
     task: asyncio.Task | None = None
     cancelled: bool = False
     started: bool = False
-    incoming: deque = field(default_factory=deque)
-    received: list[Receipt] = field(default_factory=list)
+    pending_events: list[Event] = field(default_factory=list)
+    consumed_event_ids: list[str] = field(default_factory=list)
+    accepting_inputs: bool = True
     lock: Lock = field(default_factory=Lock)
 
     @property
     def session_id(self):
-        return self.receipt.key.session_id
+        return self.key.session_id
 
-    @property
-    def events(self):
-        return (self.receipt.event, *[item.event for item in self.received])
-
-    def take_inputs(self, loop):
+    def take_pending_inputs(self, loop):
         with self.lock:
             if self.cancelled:
                 return ()
-            items = tuple(self.incoming)
-            self.incoming.clear()
-            self.received.extend(items)
-        if self.binding.on_user_event is not None:
-            for item in items:
-                if item.event.type == "user.message":
-                    loop.call_soon_threadsafe(self.binding.on_user_event, item.event)
-        return tuple(event_input(item.event) for item in items)
+            events = self.pending_events
+            self.pending_events = []
+            self.consumed_event_ids.extend(event.id for event in events)
+        for event in events:
+            if event.type == "user.message" and self.binding.on_user_event is not None:
+                loop.call_soon_threadsafe(self.binding.on_user_event, event)
+        return tuple(event.input for event in events)
+
+    def try_close_input(self) -> bool:
+        with self.lock:
+            if self.pending_events:
+                return False
+            self.accepting_inputs = False
+            return True
 
 
 class ConversationService:
     def __init__(self):
         self.sessions: dict[SessionKey, SessionBinding] = {}
-        self.queues: dict[SessionKey, deque[Receipt]] = {}
+        self.queues: dict[SessionKey, deque[Event]] = {}
         self.runs: dict[SessionKey, ActiveRun] = {}
         self.dispatch_tasks: dict[SessionKey, asyncio.Task] = {}
         self.parallel_tasks: dict[SessionKey, set[asyncio.Task]] = {}
-        self.receipts: OrderedDict[tuple[SessionKey, str], Receipt] = OrderedDict()
+        self.event_records: OrderedDict[tuple[SessionKey, str], EventRecord] = OrderedDict()
         self.silent_jobs: set[tuple[SessionKey, str, str]] = set()
         self.loop = None
         self.closing = False
@@ -152,7 +158,7 @@ class ConversationService:
         elif busy:
             status = 'running'
         else:
-            turns = [receipt for receipt in self.history(key) if receipt.event.type not in {'run.cancel', 'input.answer'}]
+            turns = [record for record in self.history(key) if record.event.type not in {'run.cancel', 'input.answer'}]
             if turns:
                 last = turns[-1]
                 status = 'interrupted' if last.status == 'cancelled' else 'error' if last.status == 'failed' else 'completed'
@@ -287,7 +293,7 @@ class ConversationService:
 
     def timer_active(self, session_id):
         run = self.runs.get(self.key_for_session(session_id))
-        return run is not None and run.receipt.event.type == "timer.trigger"
+        return run is not None and run.initial_event.type == "timer.trigger"
 
     def answer_run(self, session_id, request_id, answer, *, key=None):
         from uuid import uuid4
@@ -295,15 +301,15 @@ class ConversationService:
             key = self.key_for_session(session_id)
         run = self.runs.get(key)
         event = Event(id=uuid4().hex, type="input.answer", source="local", session_id=session_id,
-                      payload={"run_id": run.receipt.event.id if run else None,
+                      payload={"run_id": run.initial_event.id if run else None,
                                "request_id": request_id, "answer": answer})
-        receipt = self.submit_event(event, key)
-        if receipt.status == "rejected":
-            raise EventError(receipt.error)
-        return receipt
+        record = self.submit_event(event, key)
+        if record.status == "rejected":
+            raise EventError(record.error)
+        return record
 
     def history(self, key):
-        return [item for (session, _), item in self.receipts.items() if session == key]
+        return [item for (session, _), item in self.event_records.items() if session == key]
 
     def submit_event(self, event: Event, key: SessionKey | None = None):
         if self.closing:
@@ -317,53 +323,58 @@ class ConversationService:
         if key not in self.sessions or event.session_id != key.session_id:
             raise ValueError("事件与目标会话不匹配")
         event.validate()
-        if event.type not in {"input.answer", "run.cancel"}:
-            event_input(event)
         identity = (key, event.id)
-        previous = self.receipts.get(identity)
+        previous = self.event_records.get(identity)
         if previous is not None:
             if (previous.event.type, previous.event.source, previous.event.payload) != (event.type, event.source, event.payload):
                 raise ValueError("同一事件 ID 不能用于不同内容")
             return previous
-        receipt = Receipt(deepcopy(event), key)
-        self.receipts[identity] = receipt
-        for old_key, old in list(self.receipts.items()):
-            if len(self.receipts) <= 2048:
+        event = deepcopy(event)
+        if event.type not in {"input.answer", "run.cancel"}:
+            event.input = parse_event_input(event)
+        record = EventRecord(event, key)
+        self.event_records[identity] = record
+        for old_key, old in list(self.event_records.items()):
+            if len(self.event_records) <= 2048:
                 break
             if old.finished.is_set():
-                del self.receipts[old_key]
+                del self.event_records[old_key]
         if event.type == "input.answer":
-            self._answer(receipt)
+            self._answer(record)
         elif event.type == "run.cancel":
             expected = event.payload.get("run_id")
             active = self.runs.get(key)
-            if (expected is None and active is not None) or (expected is not None and (active is None or active.receipt.event.id != expected)):
-                self._finish(receipt, "rejected", "运行已变化")
+            if (expected is None and active is not None) or (expected is not None and (active is None or active.initial_event.id != expected)):
+                self._finish_event(record, "rejected", "运行已变化")
             else:
                 self.stop_session(key)
-                self._finish(receipt, "applied")
+                self._finish_event(record, "applied")
         else:
-            self.queues[key].append(receipt)
-            self._wake(key)
-        return receipt
+            self.queues[key].append(event)
+            self._schedule_dispatch(key)
+        return record
 
-    def _answer(self, receipt):
-        active = self.runs.get(receipt.key)
-        data = receipt.event.payload
-        if active is None or active.cancelled or (data.get("run_id") is not None and data["run_id"] != active.receipt.event.id):
-            self._finish(receipt, "rejected", "当前没有对应的待答运行")
+    def _answer(self, record):
+        active = self.runs.get(record.key)
+        data = record.event.payload
+        if active is None or active.cancelled or (data.get("run_id") is not None and data["run_id"] != active.initial_event.id):
+            self._finish_event(record, "rejected", "当前没有对应的待答运行")
             return
         try:
             active.binding.context.answer_input(data["request_id"], data["answer"])
         except (ValueError, KeyError) as error:
-            self._finish(receipt, "rejected", str(error))
+            self._finish_event(record, "rejected", str(error))
         else:
-            self._finish(receipt, "applied")
+            self._finish_event(record, "applied")
 
-    def _wake(self, key):
-        if self.closing or key not in self.sessions or key in self.dispatch_tasks:
+    def _schedule_dispatch(self, key):
+        if self.closing or key not in self.sessions:
             return
-        task = asyncio.create_task(self._dispatch_session(key))
+        if key in self.dispatch_tasks:
+            # A new message can arrive while an earlier routing decision is awaiting its model.
+            self.sessions[key].dispatch_requested = True
+            return
+        task = asyncio.create_task(self._dispatch_pending_events(key))
         self.dispatch_tasks[key] = task
         task.add_done_callback(lambda done: self._dispatch_done(key, done))
 
@@ -373,27 +384,29 @@ class ConversationService:
         if not task.cancelled() and task.exception() is not None:
             pending = self.queues.get(key)
             if pending:
-                self._finish(pending.popleft(), "failed", str(task.exception()))
-        if self.queues.get(key) and key not in self.runs:
-            self._wake(key)
+                event = pending.popleft()
+                self._finish_event(self.event_records[key, event.id], "failed", str(task.exception()))
+        if self.queues.get(key) and (key not in self.runs or self.sessions[key].dispatch_requested):
+            self._schedule_dispatch(key)
 
-    async def _dispatch_session(self, key):
+    async def _dispatch_pending_events(self, key):
         pending = self.queues[key]
         binding = self.sessions[key]
-        for receipt in tuple(pending):
-            if self.closing or receipt.status != "queued":
+        binding.dispatch_requested = False
+        for event in tuple(pending):
+            record = self.event_records[key, event.id]
+            if self.closing or record.status != "queued":
                 continue
             active = self.runs.get(key)
             if active is not None and active.cancelled:
                 return
-            event = receipt.event
             if binding.prepare is not None:
                 try:
-                    await binding.prepare(receipt.event)
+                    await binding.prepare(record.event)
                 except Exception as error:
-                    pending.remove(receipt)
-                    self._finish(receipt, "failed", str(error))
-                    binding.on_finish(receipt)
+                    pending.remove(event)
+                    self._finish_event(record, "failed", str(error))
+                    binding.on_finish(record)
                     continue
                 binding.prepare = None
             if event.source == "background":
@@ -404,161 +417,148 @@ class ConversationService:
                         return  # The cancelled worker still owns the session log.
                     from raccoon.app.inputs import record_completion_only
                     await asyncio.to_thread(record_completion_only, event, binding.context)
-                    pending.remove(receipt)
+                    pending.remove(event)
                     self.silent_jobs.discard(identity)
-                    self._finish(receipt, "consumed")
+                    self._finish_event(record, "consumed")
                     continue
             if active is None and event.source == "background" and await asyncio.to_thread(settle_cancelled_completion, event, binding.context):
-                pending.remove(receipt)
-                self._finish(receipt, "consumed")
+                pending.remove(event)
+                self._finish_event(record, "consumed")
+                continue
+            if record.status != "queued" or self.closing:
+                continue
+            active = self.runs.get(key)
+            if active is None:
+                pending.remove(event)
+                self._start_run(record, binding)
+                continue
+            if active.cancelled or not active.accepting_inputs:
+                return
+            if active.initial_event.type == "timer.trigger":
                 continue
             mode = event.payload.get("mode", "steer" if event.type == "user.message" else "follow_up")
             if event.source == "background":
                 mode = "steer"
-            if receipt.queue_only or event.type == "timer.trigger":
+            if record.queue_only or event.type == "timer.trigger":
                 mode = "queue"
-            if active is not None and event.type == "user.message":
+            if event.type == "user.message":
                 settings = event.payload['content'].get('settings')
-                active_settings = active.receipt.event.payload.get('content', {}).get('settings')
+                active_settings = active.initial_event.payload.get('content', {}).get('settings')
                 if settings is not None and settings != active_settings:
-                    receipt.queue_only = True
+                    record.queue_only = True
                     mode = "queue"
-            if active is not None and mode == "auto" and binding.classifier is not None:
-                snapshot = SessionSnapshot(key.session_id, active.events)
+            if mode == "auto" and binding.classifier is not None:
+                with active.lock:
+                    events = [active.initial_event]
+                    events.extend(self.event_records[key, event_id].event for event_id in active.consumed_event_ids)
+                snapshot = SessionSnapshot(key.session_id, tuple(events))
                 try:
                     async with asyncio.timeout(binding.context.routing_timeout_seconds or 5):
                         mode = await binding.classifier(event, snapshot)
                 except Exception:
                     mode = "queue"
                 if self.runs.get(key) is not active or active.cancelled:
-                    # Run cleanup may have returned older inputs to this queue.
+                    # The classification was made for a run that no longer owns this session.
                     return
-            if receipt.status != "queued" or self.closing:
+            if record.status != "queued" or self.closing:
                 continue
-            if active is not None and active.receipt.event.type == "timer.trigger":
-                mode = "queue"
-            if active is None:
-                pending.remove(receipt)
-                self._launch(receipt, binding)
-            elif mode == "steer":
-                pending.remove(receipt)
-                receipt.status = "delivered"
+            if not active.accepting_inputs:
+                return
+            if mode == "steer":
                 with active.lock:
-                    active.incoming.append(receipt)
+                    if not active.accepting_inputs:
+                        return
+                    pending.remove(event)
+                    active.pending_events.append(event)
+                    record.status = "delivered"
             elif mode == "interrupt":
-                pending.remove(receipt)
-                pending.appendleft(receipt)
+                pending.remove(event)
+                pending.appendleft(event)
                 self._cancel_run(active)
                 return
             elif mode == "parallel" and binding.parallel_executor is not None:
-                pending.remove(receipt)
-                receipt.status = "running"
-                task = asyncio.create_task(self._execute_parallel(receipt, binding))
+                pending.remove(event)
+                record.status = "running"
+                task = asyncio.create_task(self._execute_parallel(record, binding))
                 tasks = self.parallel_tasks.setdefault(key, set())
                 tasks.add(task)
-                task.add_done_callback(lambda done, key=key, receipt=receipt, binding=binding:
-                                       self._parallel_done(key, receipt, binding, done))
+                task.add_done_callback(lambda done, key=key, record=record, binding=binding:
+                                       self._parallel_done(key, record, binding, done))
 
-    def _launch(self, receipt, binding):
-        run = ActiveRun(receipt, binding)
-        self.runs[receipt.key] = run
-        receipt.status = "running"
+    def _start_run(self, record, binding):
+        run = ActiveRun(record.event, record.key, binding)
+        self.runs[record.key] = run
+        record.status = "running"
         run.task = asyncio.create_task(self.execute_run(run))
 
     async def execute_run(self, run):
-        receipt, binding = run.receipt, run.binding
+        record = self.event_records[run.key, run.initial_event.id]
+        binding = run.binding
         context = binding.context
         run.started = True
         try:
             if run.cancelled:
                 raise asyncio.CancelledError
-            if self.session_key(context) != receipt.key:
+            if self.session_key(context) != record.key:
                 raise ValueError("执行会话已变化")
             if binding.on_start is not None:
-                binding.on_start(receipt.event)
-            if binding.on_user_event is not None and receipt.event.type == "user.message":
-                binding.on_user_event(receipt.event)
-            message = event_input(receipt.event)
-
-            async def execute_message(initial, *, on_waiting=None, on_resume=None):
-                previous = context.input_event_handler
-                def notify(request, answer):
-                    if previous is not None:
-                        previous(request, answer)
-                    callback = on_waiting if answer is None else on_resume
-                    if request is not None and callback is not None:
-                        coroutine = callback(request) if answer is None else callback(request, answer)
-                        asyncio.run_coroutine_threadsafe(coroutine, self.loop).result()
-                context.input_event_handler = notify
-                try:
-                    return await context.run_turn(initial, lambda: run.take_inputs(self.loop))
-                finally:
-                    context.input_event_handler = previous
-
+                binding.on_start(record.event)
+            if binding.on_user_event is not None and record.event.type == "user.message":
+                binding.on_user_event(record.event)
+            take_pending_inputs = partial(run.take_pending_inputs, self.loop)
             with context.execution_guard():
-                if receipt.event.type == "timer.trigger":
+                if run.initial_event.type == "timer.trigger":
                     if binding.timer_executor is None:
                         raise ValueError("目标会话没有定时执行入口")
-                    response = await binding.timer_executor(run, context, execute_message)
+                    response = await binding.timer_executor(run, context, take_pending_inputs)
                 else:
-                    response = await execute_message(message)
-            receipt.response = response
+                    response = await context.run_turn(run.initial_event.input, take_pending_inputs,
+                                                      try_close_input=run.try_close_input)
+            record.response = response
             status = "succeeded"
             if run.cancelled or response is not None and response.finish_reason == "interrupted":
                 status = "cancelled"
             elif response is not None and response.finish_reason not in (None, "stop"):
                 status = "failed"
-            self._finish(receipt, status)
+            self._finish_event(record, status)
             if response is not None and binding.on_response is not None:
                 binding.on_response(run.session_id, response)
         except asyncio.CancelledError:
             context.cancel_current_turn()
-            self._finish(receipt, "cancelled")
+            self._finish_event(record, "cancelled")
         except Exception as error:
-            self._finish(receipt, "failed", str(error))
+            self._finish_event(record, "failed", str(error))
         finally:
             with run.lock:
-                settled = list(run.received)
-                unread = list(run.incoming)
-                run.incoming.clear()
-            returned_ids = set()
-            for item in unread:
-                if receipt.status == "succeeded" and item.event.type == "user.message":
-                    item.status = "queued"
-                    item.queue_only = True
-                    returned_ids.add(item.event.id)
-                else:
-                    settled.append(item)
-            if returned_ids:
-                pending = self.queues[receipt.key]
-                queued_ids = returned_ids | {item.event.id for item in pending}
-                # Receipt history keeps submission order even after an item leaves the queue.
-                pending.clear()
-                pending.extend(item for item in self.history(receipt.key) if item.event.id in queued_ids)
-            for item in settled:
-                item.response = receipt.response
-                self._finish(item, "consumed" if receipt.status == "succeeded" else receipt.status, receipt.error)
-            if self.runs.get(receipt.key) is run:
-                del self.runs[receipt.key]
+                run.accepting_inputs = False
+                settled_ids = list(run.consumed_event_ids)
+                settled_ids.extend(event.id for event in run.pending_events)
+                run.pending_events.clear()
+            for event_id in settled_ids:
+                item = self.event_records[run.key, event_id]
+                item.response = record.response
+                self._finish_event(item, "consumed" if record.status == "succeeded" else record.status, record.error)
+            if self.runs.get(record.key) is run:
+                del self.runs[record.key]
             if binding.on_finish is not None:
-                binding.on_finish(receipt)
-            self._wake(receipt.key)
+                binding.on_finish(record)
+            self._schedule_dispatch(record.key)
 
-    async def _execute_parallel(self, receipt, binding):
+    async def _execute_parallel(self, record, binding):
         try:
-            await binding.parallel_executor(ActiveRun(receipt, binding))
-            self._finish(receipt, "succeeded")
+            await binding.parallel_executor(ActiveRun(record.event, record.key, binding))
+            self._finish_event(record, "succeeded")
         except asyncio.CancelledError:
-            self._finish(receipt, "cancelled")
+            self._finish_event(record, "cancelled")
         except Exception as error:
-            self._finish(receipt, "failed", str(error))
+            self._finish_event(record, "failed", str(error))
 
-    def _parallel_done(self, key, receipt, binding, task):
+    def _parallel_done(self, key, record, binding, task):
         self.parallel_tasks.get(key, set()).discard(task)
-        if task.cancelled() and not receipt.finished.is_set():
-            self._finish(receipt, "cancelled")
+        if task.cancelled() and not record.finished.is_set():
+            self._finish_event(record, "cancelled")
         if binding.on_finish is not None:
-            binding.on_finish(receipt)
+            binding.on_finish(record)
 
     def _cancel_run(self, run):
         run.cancelled = True
@@ -575,13 +575,13 @@ class ConversationService:
         binding = self.sessions.get(key)
         runtime = self.get_loaded_session(key)
         manager = runtime.background_manager if runtime is not None else None
-        pending_job_ids = {item.event.payload['origin']['job_id'] for item in self.queues.get(key, ())
-                           if item.event.source == 'background'}
+        pending_job_ids = {event.payload['origin']['job_id'] for event in self.queues.get(key, ())
+                           if event.source == 'background'}
         active = self.runs.get(key)
         if active is not None:
             with active.lock:
-                pending_job_ids.update(item.event.payload['origin']['job_id'] for item in active.incoming
-                                       if item.event.source == 'background')
+                pending_job_ids.update(event.payload['origin']['job_id'] for event in active.pending_events
+                                       if event.source == 'background')
         if manager is not None:
             for job in manager.list(session_id=key.session_id):
                 if job.status != 'running' and job.id not in pending_job_ids:
@@ -594,11 +594,12 @@ class ConversationService:
         completions = []
         cancelled = []
         while pending:
-            item = pending.popleft()
-            if item.event.source == 'background':
-                completions.append(item)
+            event = pending.popleft()
+            item = self.event_records[key, event.id]
+            if event.source == 'background':
+                completions.append(event)
             else:
-                self._finish(item, "cancelled")
+                self._finish_event(item, "cancelled")
                 cancelled.append(item)
         if completions:
             pending.extend(completions)
@@ -606,30 +607,31 @@ class ConversationService:
         if run is not None:
             self._cancel_run(run)
             with run.lock:
-                while run.incoming:
-                    item = run.incoming.popleft()
+                for event in run.pending_events:
+                    item = self.event_records[key, event.id]
                     if item.event.source == 'background':
-                        self.queues[key].append(item)
+                        self.queues[key].append(event)
                         item.status = 'queued'
                     else:
-                        self._finish(item, "cancelled")
+                        self._finish_event(item, "cancelled")
+                run.pending_events.clear()
         for task in tuple(self.parallel_tasks.get(key, ())):
             task.cancel()
         if run is None and completions:
-            self._wake(key)
+            self._schedule_dispatch(key)
         if binding is not None and binding.on_finish is not None:
             for item in cancelled:
                 binding.on_finish(item)
 
     @staticmethod
-    def _finish(receipt, status, error=None):
-        receipt.status, receipt.error = status, error
-        receipt.finished.set()
+    def _finish_event(record, status, error=None):
+        record.status, record.error = status, error
+        record.finished.set()
 
     def pending_messages(self, key):
         messages = []
-        for item in self.queues.get(key, ()):
-            event = item.event
+        for event in self.queues.get(key, ()):
+            item = self.event_records[key, event.id]
             if event.type == 'user.message':
                 mode = 'follow_up' if item.queue_only else event.payload.get('mode', 'auto')
                 messages.append({'id': event.payload['origin']['message_id'], 'text': event.payload['content']['text'], 'mode': mode})
@@ -640,11 +642,11 @@ class ConversationService:
     def busy(self, key):
         return key in self.runs or bool(self.queues.get(key)) or bool(self.parallel_tasks.get(key))
 
-    async def wait(self, receipt):
-        await receipt.finished.wait()
-        if receipt.status == "failed":
-            raise RuntimeError(receipt.error or "任务执行失败")
-        return receipt.response
+    async def wait_for_event(self, record):
+        await record.finished.wait()
+        if record.status == "failed":
+            raise RuntimeError(record.error or "任务执行失败")
+        return record.response
 
     async def close(self):
         self.closing = True

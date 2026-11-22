@@ -3,7 +3,7 @@ from raccoon.modules.events.models import Event, EventError
 from raccoon.app.payloads import EventInput, MessageInput, TimerInput, CompletionInput, AttachmentRef, SubagentInput, TurnSettings
 
 
-def user_input(event: Event) -> MessageInput:
+def parse_user_input(event: Event) -> MessageInput:
     origin = event.payload.get("origin")
     content = event.payload.get("content")
     if event.type != "user.message" or not isinstance(origin, dict) or origin.get("kind") != "user":
@@ -24,15 +24,15 @@ def user_input(event: Event) -> MessageInput:
         raise EventError(str(exc)) from exc
 
 
-def event_input(event: Event) -> EventInput:
+def parse_event_input(event: Event) -> EventInput:
     if event.type == 'subagent.message':
         if event.source != 'parent':
             raise EventError('子 Agent 消息来源无效')
         return SubagentInput(event.id, event.payload['parent_session_id'], event.payload['text'])
     if event.type == 'timer.trigger':
-        return timer_input(event)
+        return parse_timer_input(event)
     if event.source != "background":
-        return user_input(event)
+        return parse_user_input(event)
     origin, content = event.payload.get("origin"), event.payload.get("content")
     if not isinstance(origin, dict) or origin.get("kind") != "system" or not isinstance(content, dict):
         raise EventError("invalid internal background completion envelope")
@@ -51,7 +51,7 @@ def event_input(event: Event) -> EventInput:
         raise EventError("invalid background completion fields") from exc
 
 
-def timer_input(event: Event) -> TimerInput:
+def parse_timer_input(event: Event) -> TimerInput:
     origin, content = event.payload.get('origin'), event.payload.get('content')
     if (event.type != 'timer.trigger' or event.source != 'timer'
             or not isinstance(origin, dict) or origin.get('kind') != 'system'
@@ -67,7 +67,7 @@ def settle_cancelled_completion(event: Event, runner) -> bool:
     if event.source != "background" or event.type not in ("task.completed", "task.failed"):
         return False
     session = runner.session
-    message = event_input(event)
+    message = event.input
     if session is None or not isinstance(message, CompletionInput):
         return False
     manager = getattr(runner, "background_manager", None)
@@ -103,7 +103,7 @@ def record_completion_only(event, context):
     from raccoon.modules.agent.background_results import render_task_notification
     from raccoon.runtime.background import BackgroundNotification
 
-    message = event_input(event)
+    message = event.input
     with context.execution_guard():
         if message.tool_call_id is not None:
             record_native_completion(context.session, message, context.background_manager)

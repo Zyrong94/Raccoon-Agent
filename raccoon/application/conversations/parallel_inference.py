@@ -28,7 +28,6 @@ from raccoon.modules.sessions.identity import new_session_id
 from raccoon.modules.sessions.models import utc_now_iso
 from raccoon.modules.sessions.store import SessionStore
 from raccoon.app.conversations import ActiveRun
-from raccoon.app.inputs import user_input
 from raccoon.modules.permissions.delegation import DelegatedPermissionManager
 from raccoon.modules.permissions.manager import PermissionManager
 from raccoon.modules.permissions.policy import DefaultPermissionPolicy
@@ -105,9 +104,7 @@ class ParallelBranchRunner:
 
     # ------------------------------------------------------------------ public
     async def execute(self, turn: ActiveRun, *, on_running: Callable[[], None] | None = None) -> None:
-        if not turn.events:
-            return
-        event = turn.events[0]
+        event = turn.initial_event
         question = self._question(event)
         existing = self._find(event.id, self._read_branches())
         if existing is not None:
@@ -127,7 +124,7 @@ class ParallelBranchRunner:
             )
             return
 
-        settings = user_input(event).settings if 'settings' in event.payload['content'] else None
+        settings = event.input.settings
         try:
             provider, request_options = self._resolve_config()
             context_window = None
@@ -172,7 +169,7 @@ class ParallelBranchRunner:
             child_event = replace(event, id=event.id + ':parallel', session_id=child.session_id,
                                   payload={**event.payload, 'mode': 'follow_up'})
             receipt = application.submit_event(child_event, key)
-            response = await application.wait(receipt)
+            response = await application.wait_for_event(receipt)
             if receipt.status == 'cancelled':
                 raise asyncio.CancelledError
         except asyncio.CancelledError:

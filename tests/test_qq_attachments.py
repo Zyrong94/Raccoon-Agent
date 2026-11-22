@@ -126,7 +126,7 @@ def test_group_pure_image_and_multimage_text_reach_vision_and_stay_in_their_grou
                 contexts = sorted(groups.contexts.values(), key=lambda c: c.group_id)
                 for ctx in contexts:
                     key = ctx.runtime.key_for_session(ctx.session_id)
-                    await asyncio.wait_for(ctx.runtime.wait(ctx.runtime.history(key)[0]), timeout=5)
+                    await asyncio.wait_for(ctx.runtime.wait_for_event(ctx.runtime.history(key)[0]), timeout=5)
                 assert len(sent_images(contexts[0].bundle.provider.requests[0])) == 1
                 assert len(sent_images(contexts[1].bundle.provider.requests[0])) == 2
                 a, b = contexts

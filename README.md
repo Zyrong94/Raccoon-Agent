@@ -10,7 +10,66 @@ Raccoon 正在处理任务时，工作台里新发来的消息默认排队。[�
 
 ## 技术文档
 
-后续将在 `docs/` 中介绍各模块的职责和调用关系，并在这里列出文档链接。
+下表对应上方流程图的三个分区。各篇将结合流程图介绍关键对象、函数及设计取舍，目前正文待补。
+
+<table>
+  <thead>
+    <tr><th>模块</th><th>主题</th><th>文档</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="4"><strong>事件来源与工作台</strong></td>
+      <td>工作台消息、附件</td>
+      <td><a href="docs/01-messages.md">Messages</a></td>
+    </tr>
+    <tr>
+      <td>定时任务、到期事件</td>
+      <td><a href="docs/02-scheduling.md">Scheduling</a></td>
+    </tr>
+    <tr>
+      <td>后台任务、完成通知</td>
+      <td><a href="docs/03-background-tasks.md">Background Tasks</a></td>
+    </tr>
+    <tr>
+      <td>SSE 事件流、任务进度、回复展示</td>
+      <td><a href="docs/04-event-stream.md">Event Stream</a></td>
+    </tr>
+    <tr>
+      <td rowspan="5"><strong>会话调度与模型推理</strong></td>
+      <td>消息排队、任务追加指令、任务中断、并行答复</td>
+      <td><a href="docs/05-routing.md">Routing</a></td>
+    </tr>
+    <tr>
+      <td>Agent 主循环、结束条件</td>
+      <td><a href="docs/06-agent-loop.md">Agent Loop</a></td>
+    </tr>
+    <tr>
+      <td>上下文组装、Token 预算、历史摘要</td>
+      <td><a href="docs/07-context.md">Context</a></td>
+    </tr>
+    <tr>
+      <td>Responses API 请求、响应解析</td>
+      <td><a href="docs/08-responses-api.md">Responses API</a></td>
+    </tr>
+    <tr>
+      <td>会话历史存取</td>
+      <td><a href="docs/09-session-history.md">Session History</a></td>
+    </tr>
+    <tr>
+      <td rowspan="3"><strong>工具执行与结果</strong></td>
+      <td>工具注册、参数定义</td>
+      <td><a href="docs/10-tool-registry.md">Tool Registry</a></td>
+    </tr>
+    <tr>
+      <td>工具权限、自动审核、用户确认</td>
+      <td><a href="docs/11-permissions.md">Permissions</a></td>
+    </tr>
+    <tr>
+      <td>工具执行、结果回写</td>
+      <td><a href="docs/12-tool-execution.md">Tool Execution</a></td>
+    </tr>
+  </tbody>
+</table>
 
 ## 一句话交给 AI 助手安装
 

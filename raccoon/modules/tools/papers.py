@@ -31,7 +31,7 @@ def create_search_papers_tool() -> Tool:
         return ToolResult(name="search_papers", ok=data["error"] is None,
                           content=json.dumps(data, ensure_ascii=False), data=data, error=data["error"])
 
-    tool = tool_from_function(search_papers, exposure="deferred")
+    tool = tool_from_function(search_papers, exposure="deferred", supports_background=True)
     tool.permission = ToolPermissionSpec(action=PermissionAction.NETWORK_REQUEST,
                                          target_value=ENDPOINT, reason="查询 arXiv 官方论文元数据")
     return tool

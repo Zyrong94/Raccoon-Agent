@@ -12,7 +12,7 @@ from typing import Any
 from raccoon.modules.agent.session import AgentSession
 from raccoon.modules.sessions.thread_data import ThreadDataState, copy_thread_data, default_thread_data
 from raccoon.modules.collaboration.worktree import Worktree, WorktreeDiff, WorktreeManager
-from raccoon.config.subagents_config import SubagentConfig
+from raccoon.config.subagents_config import SubagentConfig, remove_obsolete_loop_limits
 from raccoon.modules.sessions.identity import new_session_id
 from raccoon.modules.permissions.delegation import DelegatedPermissionManager
 from raccoon.modules.permissions.manager import PermissionManager
@@ -103,6 +103,7 @@ def load_subagent_session(parent, subagent_session_id: str) -> AgentSession:
     if not isinstance(snapshot, dict):
         raise ValueError('subagent has no collaboration snapshot')
     config_values = dict(snapshot['config'])
+    remove_obsolete_loop_limits(config_values)
     # Old session snapshots stored the redundant inheritance field.
     if config_values.pop('model', None) not in (None, 'inherit'):
         raise ValueError('saved subagent model override is unsupported')
@@ -211,12 +212,18 @@ def _create_inline_subagent(parent, request: SubagentRequest, *, config: Subagen
 def _freeze_inline_tools(tools, *, root, access):
     if root is None:
         return [replace(tool, definition=deepcopy(tool.definition), permission=copy(tool.permission)) for tool in tools]
-    from raccoon.modules.tools.builtin import create_builtin_registry
-    registry = create_builtin_registry(root, include_mutation_tools=True, include_execution_tools=True,
-                                       include_network_tools=True, access=access)
+    from raccoon.modules.tools.builtin import create_builtin_tools
+    builtin_tools = create_builtin_tools(
+        root,
+        include_mutation_tools=True,
+        include_execution_tools=True,
+        include_network_tools=True,
+        access=access,
+    )
+    builtins_by_name = {tool.name: tool for tool in builtin_tools}
     rebound = []
     for tool in tools:
-        builtin = registry.get(tool.name)
+        builtin = builtins_by_name.get(tool.name)
         if getattr(tool.executor, '__module__', '').startswith('raccoon.modules.tools.') and builtin is not None:
             tool = builtin
         rebound.append(tool)
@@ -291,9 +298,9 @@ def _worktree_subagent_tools(
     excludes session-reserved tool names when passing into ``AgentSession``.
     """
 
-    from raccoon.modules.tools.builtin import create_builtin_registry
+    from raccoon.modules.tools.builtin import create_builtin_tools
 
-    registry = create_builtin_registry(
+    builtin_tools = create_builtin_tools(
         root,
         include_mutation_tools=True,
         include_execution_tools=True,
@@ -301,7 +308,7 @@ def _worktree_subagent_tools(
         access=access,
     )
     allowed = config.tools
-    tools = [tool for tool in registry.tools() if (allowed is None or tool.name in allowed) and tool.name != "delegate"]
+    tools = [tool for tool in builtin_tools if (allowed is None or tool.name in allowed) and tool.name != "delegate"]
     return tools
 
 

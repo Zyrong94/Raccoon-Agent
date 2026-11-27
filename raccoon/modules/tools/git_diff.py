@@ -51,7 +51,7 @@ def create_git_diff_tool(root: str | Path, *, access: SandboxAccess | None = Non
             truncated=truncated,
         )
 
-    tool = tool_from_function(git_diff, exposure="deferred")
+    tool = tool_from_function(git_diff, exposure="deferred", supports_background=True)
     tool.permission = ToolPermissionSpec(
         action=PermissionAction.GIT_OPERATION,
         target_builder=lambda arguments: "diff --cached" if bool(arguments.get("staged")) else "diff",

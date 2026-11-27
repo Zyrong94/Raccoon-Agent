@@ -18,7 +18,7 @@ from raccoon.modules.tools.grep import create_grep_tool
 from raccoon.modules.tools.ls import create_ls_tool
 from raccoon.modules.tools.processes import create_process_tools
 from raccoon.modules.tools.read_multi import create_read_multi_tool
-from raccoon.modules.tools.registry import ToolRegistry
+from raccoon.modules.tools.types import Tool
 from raccoon.modules.tools.think import create_think_tool
 from raccoon.modules.tools.shell import create_shell_tool
 from raccoon.modules.tools.python_exec import create_python_exec_tool
@@ -33,7 +33,7 @@ from raccoon.modules.permissions.sandbox_access import SandboxAccess
 from raccoon.runtime.processes import ProcessManager
 
 
-def create_builtin_registry(
+def create_builtin_tools(
     root: str | Path,
     include_mutation_tools: bool = False,
     include_execution_tools: bool = False,
@@ -43,8 +43,8 @@ def create_builtin_registry(
     include_think: bool = True,
     include_web_search: bool = True,
     process_manager: ProcessManager | None = None,
-) -> ToolRegistry:
-    """创建第一阶段默认可用工具。
+) -> list[Tool]:
+    """创建启用的内置工具，由调用方统一注册。
 
     默认只注册只读工具。写入类工具必须显式启用，方便后续接确认机制。
     """
@@ -89,4 +89,4 @@ def create_builtin_registry(
         if include_web_search:
             tools.append(create_web_search_tool())
             tools.append(create_search_papers_tool())
-    return ToolRegistry([apply_agent_tool_description(tool) for tool in tools])
+    return [apply_agent_tool_description(tool) for tool in tools]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from raccoon.runtime.background import BackgroundJobManager
 from raccoon.config.subagents_config import SubagentConfig, discover_subagent_configs
 from raccoon.modules.sessions.thread_data import ThreadDataState, copy_thread_data, default_thread_data
 from raccoon.modules.sessions.store import SessionStore
@@ -10,7 +11,7 @@ from raccoon.modules.sessions.models import SessionData
 from raccoon.modules.permissions.grants import FilePermissionGrantStore
 from raccoon.modules.permissions.manager import PermissionManager
 from raccoon.modules.permissions.policy import DefaultPermissionPolicy
-from raccoon.modules.tools.session_registry import create_session_tool_registry
+from raccoon.modules.tools.session_registry import build_tool_registry
 from raccoon.modules.context.temporal import resolve_user_timezone
 from raccoon.modules.tools.types import Tool
 from raccoon.modules.permissions.sandbox_access import SandboxAccess
@@ -53,6 +54,7 @@ def prepare_session(
     thread_data: ThreadDataState | None = None,
     user_timezone: str | None = None,
     include_session_tools: bool = True,
+    background_manager: BackgroundJobManager | None = None,
 ) -> "AgentSession":
     """准备当前执行依赖，不恢复已经删除的旧运行状态。"""
     data_root = Path(data_root) if data_root is not None else store.root
@@ -75,13 +77,14 @@ def prepare_session(
         catalog = SkillCatalog(
             skills=[skill for skill in available_catalog.skills if skill.name in config.skills]
         )
-    registry = create_session_tool_registry(
+    registry = build_tool_registry(
         data=data,
         tools=tools,
         user_timezone=user_timezone,
         store=store,
         skill_catalog=catalog,
         include_session_tools=include_session_tools,
+        background_manager=background_manager if config is None else None,
     )
     saved_directories = thread_data if thread_data is not None else data.metadata.get("thread_data")
     directories = (

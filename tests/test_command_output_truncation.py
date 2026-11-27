@@ -3,13 +3,15 @@
 from raccoon.modules.tools.execution import execute_tool
 
 import pytest
-from raccoon.modules.tools.builtin import create_builtin_registry
+from raccoon.modules.tools.registry import ToolRegistry
+from raccoon.modules.tools.builtin import create_builtin_tools
 
 
 @pytest.mark.parametrize("tool_name", ["shell", "python_exec"])
 @pytest.mark.parametrize("exit_code", [0, 2])
 def test_command_output_is_truncated_without_automatic_archive(tmp_path, tool_name, exit_code):
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
     if tool_name == "shell":
         args = {"command": f"echo HEAD {'x'*500} TAIL & exit {exit_code}"} if __import__("os").name == "nt" else {"command": f"echo HEAD {'x'*500} TAIL; exit {exit_code}"}
     else:

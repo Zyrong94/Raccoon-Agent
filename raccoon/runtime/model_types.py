@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Literal
+import json
 
 MessageRole = Literal["system", "user", "assistant", "tool"]
+PartKind = Literal["text", "reasoning", "tool_call", "tool_result", "image", "file"]
 FinishReason = Literal[
     "stop",
     "tool_calls",
@@ -14,7 +15,7 @@ FinishReason = Literal[
     "content_filter",
     "error",
     "unknown",
-    "tool_round_limit",
+    "interrupted",
     "waiting_for_user_input",
 ]
 ToolChoiceMode = Literal["auto", "none", "required"]
@@ -49,15 +50,6 @@ class TokenUsage:
 
 
 @dataclass(slots=True)
-class ProviderDiagnostics:
-    """不会进入模型可见正文的 provider 诊断信息。"""
-
-    reasoning: str | None = None
-    raw_finish_reason: str | None = None
-    warnings: list[str] = field(default_factory=list)
-
-
-@dataclass(slots=True)
 class ContentPart:
     """Provider-agnostic rich content within one chat message."""
 
@@ -70,6 +62,73 @@ class ContentPart:
 
 
 @dataclass(slots=True)
+class MessagePart:
+    """有序内容的唯一存储；写入会话时补上本地 id 和 message_id。"""
+
+    id: str = ""
+    message_id: str = ""
+    kind: PartKind | str = "text"
+    content: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_tool_call(cls, call: ToolCall) -> MessagePart:
+        return cls(kind="tool_call", metadata={
+            "tool_call_id": call.id, "tool_name": call.name,
+            "arguments": call.arguments, "async_execution": call.async_execution,
+        })
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "MessagePart":
+        return cls(
+            id=str(value["id"]),
+            message_id=str(value["message_id"]),
+            kind=str(value["kind"]),
+            content=str(value.get("content", "")),
+            metadata=dict(value.get("metadata") or {}),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "message_id": self.message_id,
+            "kind": self.kind,
+            "content": self.content,
+            "metadata": self.metadata,
+        }
+
+
+def message_text(parts: list[MessagePart]) -> str:
+    groups: list[str] = []
+    previous_index = None
+    for part in parts:
+        if part.kind != "text":
+            continue
+        index = part.metadata.get("output_index")
+        if index is not None and index == previous_index and groups:
+            groups[-1] += part.content
+        else:
+            groups.append(part.content)
+        previous_index = index
+    return "\n".join(groups)
+
+
+def message_tool_calls(parts: list[MessagePart]) -> list[ToolCall]:
+    calls = []
+    for part in parts:
+        if part.kind == "tool_call":
+            arguments = part.metadata["arguments"]
+            if isinstance(arguments, str):
+                arguments = json.loads(arguments)
+            calls.append(ToolCall(
+                id=part.metadata["tool_call_id"], name=part.metadata["tool_name"],
+                arguments=arguments,
+                async_execution=part.metadata.get("async_execution", False),
+            ))
+    return calls
+
+
+@dataclass(slots=True)
 class ChatMessage:
     """agent 内部使用的统一消息结构。
 
@@ -78,14 +137,21 @@ class ChatMessage:
     """
 
     role: MessageRole
-    content: str
+    # 用户、系统和工具结果使用 text；助手只使用有序 parts。
+    text: str = ""
     content_parts: list[ContentPart] | None = None
     name: str | None = None
     tool_call_id: str | None = None
-    tool_calls: list[ToolCall] = field(default_factory=list)
-    # Opaque protocol data; only the originating provider may replay it.
-    provider_state: dict[str, Any] = field(default_factory=dict)
+    parts: list[MessagePart] = field(default_factory=list)
     additional_tools: list[ToolDefinition] = field(default_factory=list)
+
+    @property
+    def content(self) -> str:
+        return message_text(self.parts) if self.role == "assistant" else self.text
+
+    @property
+    def tool_calls(self) -> list[ToolCall]:
+        return message_tool_calls(self.parts)
 
 
 @dataclass(slots=True)
@@ -126,25 +192,6 @@ class ToolChoiceFunction:
 ToolChoice = ToolChoiceMode | ToolChoiceFunction
 
 
-@dataclass(frozen=True, slots=True)
-class MainRequestOptions:
-    """Selected model options shared by agent and research requests."""
-
-    temperature: float | None = None
-    max_tokens: int | None = None
-    extra_body: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "extra_body", deepcopy(dict(self.extra_body)))
-
-    def as_chat_request_kwargs(self) -> dict[str, Any]:
-        return {
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-            "extra_body": deepcopy(self.extra_body),
-        }
-
-
 @dataclass(slots=True)
 class ChatRequest:
     """发送给 provider 的统一请求结构。"""
@@ -152,9 +199,7 @@ class ChatRequest:
     messages: list[ChatMessage]
     tools: list[ToolDefinition] = field(default_factory=list)
     tool_choice: ToolChoice | None = "auto"
-    temperature: float | None = None
-    max_tokens: int | None = None
-    extra_body: dict[str, Any] = field(default_factory=dict)
+    reasoning_effort: str | None = None
 
 
 @dataclass(slots=True)
@@ -163,10 +208,14 @@ class ChatResponse:
 
     provider: str
     model: str
-    content: str
-    tool_calls: list[ToolCall] = field(default_factory=list)
+    parts: list[MessagePart] = field(default_factory=list)
     finish_reason: FinishReason | None = None
     usage: TokenUsage | None = None
-    diagnostics: ProviderDiagnostics = field(default_factory=ProviderDiagnostics)
-    raw: Any | None = None
-    provider_state: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def content(self) -> str:
+        return message_text(self.parts)
+
+    @property
+    def tool_calls(self) -> list[ToolCall]:
+        return message_tool_calls(self.parts)

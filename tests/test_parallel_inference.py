@@ -12,7 +12,7 @@ from tests.scripted_providers import FakeProvider
 def test_parallel_tool_catalog_keeps_the_read_only_boundary(tmp_path):
     runner = ParallelBranchRunner(
         session_id="parent", store=SessionStore(tmp_path / ".raccoon"), project_root=tmp_path,
-        provider=FakeProvider([]), request_options=None,
+        provider=FakeProvider([]), reasoning_effort=None,
         permission_manager=PermissionManager(policy=DefaultPermissionPolicy(tmp_path)),
         sandbox_access=None, parent_tool_names={"ls", "write", "shell", "delegate", "diagnostics", "web_fetch"},
     )
@@ -40,3 +40,15 @@ def test_concurrent_store_instances_append_complete_jsonl_events(tmp_path):
 
     assert len(first.list_events(data.session_id)) == 21
     assert first.load(data.session_id).metadata["title"] in {"parent 9", "branch 9"}
+
+
+def test_parallel_model_switch_to_default_effort_does_not_reuse_previous_effort(tmp_path):
+    original = FakeProvider([])
+    selected = FakeProvider([])
+    runner = ParallelBranchRunner(
+        session_id="parent", store=SessionStore(tmp_path), project_root=tmp_path,
+        provider=original, reasoning_effort="high", provider_resolver=lambda: (selected, None),
+        permission_manager=None, sandbox_access=None, parent_tool_names=set(),
+    )
+
+    assert runner._resolve_config() == (selected, None)

@@ -1,10 +1,36 @@
 from types import SimpleNamespace
 
+import json
+import pytest
+
 from raccoon.runtime.background import STATUS_RUNNING
 from raccoon.application.delivery.messages import display_messages, running_tool_call_ids
 from raccoon.modules.context.context_builder import ContextBuilder
 from raccoon.modules.sessions.models import AgentMessage, MessagePart, SessionData
 from raccoon.modules.sessions.store import SessionStore
+from raccoon.runtime.model_types import message_tool_calls
+
+
+@pytest.mark.parametrize("arguments", ["", "{bad json"])
+def test_corrupt_tool_arguments_remain_visible_but_fail_when_read_for_execution(arguments):
+    part = MessagePart("call-part", "answer", "tool_call", "", {
+        "tool_call_id": "call_1", "tool_name": "read_file", "arguments": arguments,
+    })
+    view = SessionData("session", messages=[AgentMessage("answer", "assistant", [part])])
+
+    assert display_messages(view)[0]["calls"][0]["arguments"] == arguments
+    with pytest.raises(json.JSONDecodeError):
+        message_tool_calls([part])
+
+
+def test_valid_tool_arguments_are_parsed_for_display_and_execution():
+    part = MessagePart("call-part", "answer", "tool_call", "", {
+        "tool_call_id": "call_1", "tool_name": "read_file", "arguments": '{"path":"README.md"}',
+    })
+    view = SessionData("session", messages=[AgentMessage("answer", "assistant", [part])])
+
+    assert display_messages(view)[0]["calls"][0]["arguments"] == {"path": "README.md"}
+    assert message_tool_calls([part])[0].arguments == {"path": "README.md"}
 
 
 def test_display_projection_keeps_only_visible_roles_and_parts():
@@ -14,7 +40,7 @@ def test_display_projection_keeps_only_visible_roles_and_parts():
         ]),
         AgentMessage("answer", "assistant", [
             MessagePart("text", "answer", "text", "visible answer"),
-            MessagePart("opaque", "answer", "provider_state", "secret model state"),
+            MessagePart("opaque", "answer", "reasoning", "", {"reasoning_item": {"encrypted_content": "secret model state"}}),
         ]),
     ])
 

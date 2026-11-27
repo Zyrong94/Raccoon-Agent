@@ -14,7 +14,8 @@ import raccoon.modules.tools.web_search as web_search_module
 
 from raccoon.modules.tools.fetch import create_fetch_tool
 from raccoon.modules.tools.web_search import create_web_search_tool
-from raccoon.modules.tools import create_builtin_registry
+from raccoon.modules.tools.registry import ToolRegistry
+from raccoon.modules.tools import create_builtin_tools
 
 
 
@@ -65,7 +66,8 @@ def test_fetch_reads_text_response(monkeypatch, tmp_path):
 
     monkeypatch.setattr(fetch_module, "_resolves_to_private_ip", lambda hostname, **kwargs: False)
 
-    registry = create_builtin_registry(tmp_path, include_network_tools=True)
+    tools = create_builtin_tools(tmp_path, include_network_tools=True)
+    registry = ToolRegistry(tools)
 
 
 
@@ -85,7 +87,8 @@ def test_fetch_reads_text_response(monkeypatch, tmp_path):
 
 def test_fetch_rejects_unsupported_scheme(tmp_path):
 
-    registry = create_builtin_registry(tmp_path, include_network_tools=True)
+    tools = create_builtin_tools(tmp_path, include_network_tools=True)
+    registry = ToolRegistry(tools)
 
 
 
@@ -103,7 +106,8 @@ def test_fetch_rejects_unsupported_scheme(tmp_path):
 
 def test_fetch_rejects_private_and_local_targets(tmp_path):
 
-    registry = create_builtin_registry(tmp_path, include_network_tools=True)
+    tools = create_builtin_tools(tmp_path, include_network_tools=True)
+    registry = ToolRegistry(tools)
 
 
 
@@ -215,7 +219,8 @@ def test_web_search_uses_parallel_by_default(monkeypatch, tmp_path):
 
     monkeypatch.setattr(web_search_module.request, "urlopen", fake_urlopen)
 
-    registry = create_builtin_registry(tmp_path, include_network_tools=True)
+    tools = create_builtin_tools(tmp_path, include_network_tools=True)
+    registry = ToolRegistry(tools)
 
 
 
@@ -271,7 +276,8 @@ def test_web_search_falls_back_to_exa_with_api_key(monkeypatch, tmp_path):
 
     monkeypatch.setattr(web_search_module.request, "urlopen", fake_urlopen)
 
-    registry = create_builtin_registry(tmp_path, include_network_tools=True)
+    tools = create_builtin_tools(tmp_path, include_network_tools=True)
+    registry = ToolRegistry(tools)
 
 
 
@@ -313,7 +319,8 @@ def test_web_search_redacts_exa_api_key_from_result_data(monkeypatch, tmp_path):
 
     monkeypatch.setattr(web_search_module.request, "urlopen", fake_urlopen)
 
-    registry = create_builtin_registry(tmp_path, include_network_tools=True)
+    tools = create_builtin_tools(tmp_path, include_network_tools=True)
+    registry = ToolRegistry(tools)
 
 
 
@@ -361,7 +368,8 @@ def test_web_search_parses_sse_response():
 
 def test_web_search_rejects_invalid_limits(tmp_path):
 
-    registry = create_builtin_registry(tmp_path, include_network_tools=True)
+    tools = create_builtin_tools(tmp_path, include_network_tools=True)
+    registry = ToolRegistry(tools)
 
 
 
@@ -385,7 +393,8 @@ def test_web_search_rejects_invalid_limits(tmp_path):
 
 def test_web_search_definition_constrains_enum_parameters(tmp_path):
 
-    registry = create_builtin_registry(tmp_path, include_network_tools=True)
+    tools = create_builtin_tools(tmp_path, include_network_tools=True)
+    registry = ToolRegistry(tools)
 
     definition = {item.name: item for item in registry.definitions()}["web_search"]
 
@@ -417,7 +426,8 @@ def test_web_search_normalizes_common_model_boolean_livecrawl(monkeypatch, tmp_p
 
     monkeypatch.setattr(web_search_module.request, "urlopen", fake_urlopen)
 
-    registry = create_builtin_registry(tmp_path, include_network_tools=True)
+    tools = create_builtin_tools(tmp_path, include_network_tools=True)
+    registry = ToolRegistry(tools)
 
 
 

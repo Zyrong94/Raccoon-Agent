@@ -35,7 +35,7 @@ def search_tools(definitions: Sequence[ToolDefinition], query: str) -> list[Tool
 def create_tool_search(
     catalog: Callable[[], list[ToolDefinition]],
     loaded: Callable[[], dict[str, ToolDefinition]],
-    declare: Callable[[list[ToolDefinition]], None],
+    queue_tool_definitions: Callable[[list[ToolDefinition]], None],
     *,
     catalog_status: Callable[[], str] | None = None,
 ) -> Tool:
@@ -48,7 +48,7 @@ def create_tool_search(
         previous = loaded()
         matches = search_tools([item for item in definitions if previous.get(item.name) != item], query)
         if matches:
-            declare(matches)
+            queue_tool_definitions(matches)
             content = "Matching tools loaded for this session:\n" + "\n".join(
                 f"- {item.name}: {item.description}" for item in matches
             )

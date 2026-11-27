@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+from raccoon.runtime.model_types import MessagePart
 from raccoon.modules.events.models import Event
 from raccoon.app.conversations import SessionSnapshot
 from raccoon.modules.events.semantic_routing import (
@@ -14,7 +15,7 @@ from raccoon.modules.events.semantic_routing import (
     parse_event_routing,
 )
 from raccoon.runtime.model_provider import ChatProvider
-from raccoon.runtime.model_types import ChatRequest, ChatResponse, MainRequestOptions
+from raccoon.runtime.model_types import ChatRequest, ChatResponse
 
 
 class FakeProvider(ChatProvider):
@@ -95,8 +96,9 @@ def prior() -> SessionSnapshot:
 
 def reply(mode: str, event_id: str = "incoming") -> ChatResponse:
     return ChatResponse(
-        provider="fake", model="fake-model",
-        content=json.dumps({"mode": mode, "event_id": event_id}, ensure_ascii=False),
+        provider="fake",
+        model="fake-model",
+        parts=[MessagePart(kind="text", content=json.dumps({"mode": mode, "event_id": event_id}, ensure_ascii=False))],
     )
 
 
@@ -130,7 +132,11 @@ def test_bad_output_is_rejected_and_falls_back_to_queue(content):
     assert parse_event_routing(content, event_id="incoming") is None
 
     async def scenario():
-        provider = FakeProvider(ChatResponse(provider="fake", model="fake-model", content=content))
+        provider = FakeProvider(ChatResponse(
+            provider="fake",
+            model="fake-model",
+            parts=[MessagePart(kind="text", content=content)],
+        ))
         router = MessageRouteClassifier(provider)
         assert await router.classify(user_event(), prior()) == "queue"
         assert provider.calls == 1
@@ -183,11 +189,10 @@ def test_cross_session_snapshot_is_rejected():
 def test_request_options_are_respected():
     async def scenario():
         provider = FakeProvider(reply("queue"))
-        router = MessageRouteClassifier(provider, request_options=MainRequestOptions(temperature=0.0, max_tokens=64))
+        router = MessageRouteClassifier(provider, reasoning_effort="low")
         await router.classify(user_event(), prior())
         request = provider.requests[0]
-        assert request.max_tokens == 64
-        assert request.temperature == 0.0
+        assert request.reasoning_effort == "low"
 
     run(scenario())
 

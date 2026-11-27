@@ -34,7 +34,7 @@ def create_tree_tool(root: str | Path, *, access: SandboxAccess | None = None) -
         content = "\n".join(lines) if lines else "目录为空。"
         return make_text_result("tree", content, entries=entries, truncated=truncated)
 
-    return with_read_permission(tool_from_function(tree, exposure="deferred"), reason="读取目录树需要权限检查。")
+    return with_read_permission(tool_from_function(tree, exposure="deferred", supports_background=True), reason="读取目录树需要权限检查。")
 
 
 def _walk_tree(

@@ -24,7 +24,7 @@ def test_reopened_pdf_uses_provider_file_input_only_when_supported(tmp_path):
     assert "未发送" in without_pdf[0].content
     with_pdf = builder.build_provider_messages(view, store_root=store.root, supports_pdf_input=True)
     provider = OpenAIResponsesProvider(name="offline", model="test", api_key="unused")
-    wire = provider._to_response_input(with_pdf)[0]
+    wire = provider._build_input_items(with_pdf)[0]
     file = next(part for part in wire["content"] if part["type"] == "input_file")
     assert file["filename"] == "paper.pdf"
     assert base64.b64decode(file["file_data"].split(",", 1)[1]) == raw

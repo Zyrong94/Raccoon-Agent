@@ -48,7 +48,10 @@ class ContextBuilder:
         if active_compaction is not None:
             # compaction 不删除原始历史，只改变本次 provider 请求看到的上下文：旧历史用摘要
             # 表示，tail 部分保留原文，便于模型继续当前任务。
-            messages.append(ChatMessage(role="user", content="[Previous conversation summary]\n" + active_compaction.summary))
+            messages.append(ChatMessage(
+                role="user",
+                text="[Previous conversation summary]\n" + active_compaction.summary,
+            ))
 
         tail_messages = self._tail_messages(view, compaction=active_compaction)
         declarations = _tool_declarations(view, tail_messages)
@@ -57,7 +60,10 @@ class ContextBuilder:
             part.kind == "file" and part.metadata.get("media_type") == "application/pdf"
             for message in view.messages if message not in tail_messages for part in message.parts
         ):
-            messages.append(ChatMessage(role="user", content="[较早的 PDF 附件已随历史压缩，本次未发送原文件；需要原文时请使用 PDF 工具补读，或请用户重新附加文件。]"))
+            messages.append(ChatMessage(
+                role="user",
+                text="[较早的 PDF 附件已随历史压缩，本次未发送原文件；需要原文时请使用 PDF 工具补读，或请用户重新附加文件。]",
+            ))
         tail_messages = _collapse_identical_adjacent_duplicate_tool_calls(tail_messages)
         # provider 对 tool calling 序列很严格：assistant tool_call 后必须紧跟对应 tool result。
         # 压缩/compaction 不能把这个配对切断。
@@ -68,7 +74,19 @@ class ContextBuilder:
             temporal = latest_user.metadata.get('temporal_context')
             if isinstance(temporal, str) and temporal:
                 # A compaction may begin after the current turn's user message.
-                messages.append(ChatMessage(role='user', content=_runtime_temporal_content(temporal)))
+                messages.append(ChatMessage(
+                    role='user',
+                    text=_runtime_temporal_content(temporal),
+                ))
+        reasoning_cutoff = -1
+        if active_compaction is not None:
+            positions = {message.id: index for index, message in enumerate(view.messages)}
+            cutoff_id = active_compaction.reasoning_cutoff_message_id
+            if cutoff_id not in positions:
+                raise InvalidCompactionBoundaryError("reasoning cutoff message not found")
+            reasoning_cutoff = positions[cutoff_id]
+        else:
+            positions = {}
         for message in tail_messages:
             projected = self._project_message(
                 message,
@@ -76,6 +94,7 @@ class ContextBuilder:
                 supports_vision=supports_vision,
                 supports_pdf_input=supports_pdf_input,
                 session_id=view.session_id,
+                include_reasoning=active_compaction is None or positions[message.id] > reasoning_cutoff,
             )
             messages.extend(projected)
             messages.extend(declarations.get(message.id, []))
@@ -128,6 +147,7 @@ class ContextBuilder:
         supports_vision: bool = False,
         supports_pdf_input: bool = False,
         session_id: str,
+        include_reasoning: bool = True,
     ) -> list[ChatMessage]:
         if message.role == "system_meta":
             # system_meta 是内部状态，不应该作为普通对话消息发给 provider。
@@ -140,15 +160,18 @@ class ContextBuilder:
 
         if message.role == "assistant":
             projected = _project_assistant_message(
-                message,
+                message, include_reasoning=include_reasoning,
             )
             # Tool calls remain meaningful even without visible assistant text.
-            return [projected] if projected.content or projected.tool_calls else []
+            return [projected] if projected.parts else []
 
         if message.role == "user":
             visible_content = _join_visible_text(message.parts)
             if message.metadata.get("source_kind") == "agent_status":
-                return [ChatMessage(role="user", content=visible_content)]
+                return [ChatMessage(
+                    role="user",
+                    text=visible_content,
+                )]
             content = visible_content
             temporal = message.metadata.get('temporal_context')
             if isinstance(temporal, str) and temporal:
@@ -166,7 +189,11 @@ class ContextBuilder:
             # Empty text without attachments does not produce a user message.
             if not visible_content and content_parts is None:
                 return []
-            return [ChatMessage(role="user", content=content, content_parts=content_parts)]
+            return [ChatMessage(
+                role="user",
+                content_parts=content_parts,
+                text=content,
+            )]
 
         return []
 
@@ -212,37 +239,25 @@ def _tool_declarations(view: SessionData, tail: list[AgentMessage]) -> dict[str 
 
 def _declaration_message(definitions: list[ToolDefinition]) -> ChatMessage:
     return ChatMessage(
-        role="system",
-        content="Incremental tools update: previously declared tools remain available. "
+               role="system",
+               additional_tools=definitions,
+               text="Incremental tools update: previously declared tools remain available. "
                 "A new definition replaces an earlier definition with the same name.",
-        additional_tools=definitions,
-    )
+           )
 
 
 def _runtime_temporal_content(temporal: str) -> str:
     return '[Raccoon runtime context]\n' + temporal + '\n[End runtime context]'
 
 
-def _project_assistant_message(
-    message: AgentMessage,
-) -> ChatMessage:
-    """把内部 assistant parts 合并成 provider assistant message。"""
-
-    text_parts = [part.content for part in message.parts if part.kind == "text" and part.content]
-    tool_calls = [
-        ToolCall(
-            id=str(part.metadata["tool_call_id"]),
-            name=str(part.metadata["tool_name"]),
-            arguments=part.metadata.get("arguments", {}),
-            async_execution=part.metadata.get("async_execution") is True,
-        )
-        for part in message.parts
-        if part.kind == "tool_call"
-    ]
-    return ChatMessage(
-        role="assistant", content="\n".join(text_parts), tool_calls=tool_calls,
-        provider_state=message.metadata.get("provider_state", {}),
-    )
+def _project_assistant_message(message: AgentMessage, *, include_reasoning: bool) -> ChatMessage:
+    parts = []
+    for part in message.parts:
+        if part.kind == "reasoning" and not include_reasoning:
+            continue
+        if part.kind in {"text", "tool_call", "reasoning"}:
+            parts.append(part)
+    return ChatMessage(role="assistant", parts=parts)
 
 
 def _project_tool_part(part: MessagePart, *, supports_vision: bool) -> ChatMessage:
@@ -265,9 +280,11 @@ def _project_tool_part(part: MessagePart, *, supports_vision: bool) -> ChatMessa
                 ))
             content = "\n".join(item.text for item in content_parts if item.type == "text" and item.text)
     return ChatMessage(
-        role="tool", content=content, content_parts=content_parts,
+        role="tool",
+        content_parts=content_parts,
         name=str(part.metadata.get("tool_name")) if part.metadata.get("tool_name") else None,
         tool_call_id=str(part.metadata["tool_call_id"]),
+        text=content,
     )
 
 

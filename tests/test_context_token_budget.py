@@ -1,13 +1,14 @@
 import pytest
 
 from raccoon.modules.context.token_budget import build_context_budget
-from raccoon.modules.context.budget_defaults import DEFAULT_CONTEXT_WINDOW
+from raccoon.modules.context.budget_defaults import DEFAULT_CONTEXT_WINDOW, DEFAULT_OUTPUT_RESERVE
 from raccoon.runtime.model_types import ChatMessage, ContentPart, ToolDefinition
 
 
 @pytest.mark.parametrize(
     ("window", "output", "capacity"),
     [
+        (32_768, 0, 32_768),
         (32_768, 4_096, 28_672),
         (128_000, 8_192, 119_808),
         (200_000, 8_192, 191_808),
@@ -18,7 +19,7 @@ def test_budget_reserves_output_tokens_from_context_window(window, output, capac
         messages=[],
         tools=[],
         context_window=window,
-        max_output_tokens=output,
+        output_reserve=output,
     )
 
     assert budget.input_capacity == capacity
@@ -27,12 +28,18 @@ def test_budget_reserves_output_tokens_from_context_window(window, output, capac
 def test_budget_separates_fixed_and_history_tokens() -> None:
     budget = build_context_budget(
         messages=[
-            ChatMessage(role="system", content="s" * 40),
-            ChatMessage(role="user", content="u" * 80),
+            ChatMessage(
+                role="system",
+                text="s" * 40,
+            ),
+            ChatMessage(
+                role="user",
+                text="u" * 80,
+            ),
         ],
         tools=[ToolDefinition(name="read", description="d" * 40, parameters={})],
         context_window=32_768,
-        max_output_tokens=4_096,
+        output_reserve=4_096,
     )
 
     assert budget.fixed_tokens > 10
@@ -45,18 +52,18 @@ def test_budget_counts_image_once_without_counting_base64_bytes() -> None:
         messages=[
             ChatMessage(
                 role="user",
-                content="describe",
                 content_parts=[
                     ContentPart(type="text", text="describe"),
                     ContentPart(type="image", media_type="image/png", data_base64="x" * 100_000),
                 ],
+                text="describe",
             )
         ],
         tools=[],
         context_window=None,
-        max_output_tokens=None,
     )
 
+    assert budget.output_reserve == DEFAULT_OUTPUT_RESERVE == 32_768
     assert budget.source == "assumed"
     assert budget.context_window == DEFAULT_CONTEXT_WINDOW == 1_050_000
     assert budget.history_tokens < 2_000
@@ -72,7 +79,7 @@ def test_budget_rejects_invalid_capacity(window, output) -> None:
             messages=[],
             tools=[],
             context_window=window,
-            max_output_tokens=output,
+            output_reserve=output,
         )
 
 
@@ -80,6 +87,6 @@ def test_budget_rejects_invalid_capacity(window, output) -> None:
 def test_budget_rejects_invalid_history_overhead(overhead) -> None:
     with pytest.raises(ValueError):
         build_context_budget(
-            messages=[], tools=[], context_window=None, max_output_tokens=None,
+            messages=[], tools=[], context_window=None,
             history_overhead_tokens=overhead,
         )

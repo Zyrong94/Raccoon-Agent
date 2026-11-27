@@ -1,11 +1,9 @@
 """全局模型目录的数据结构与校验；不读取密钥、不合并项目配置。"""
 from __future__ import annotations
 
-from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
-import math
 import re
 
 from raccoon.modules.context.budget_defaults import DEFAULT_CONTEXT_WINDOW, DEFAULT_OUTPUT_RESERVE
@@ -17,14 +15,6 @@ class ModelCatalogError(ValueError):
 
 class ProviderConfigError(ValueError):
     """模型调用所需的配置缺失。"""
-
-
-@dataclass(frozen=True, slots=True)
-class ModelRequestOptions:
-    temperature: float | None = None
-    max_tokens: int | None = None
-    reasoning_effort: str | None = None
-    extra_body: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +32,7 @@ class ModelProfile:
     model_id: str
     label: str
     provider: ProviderProfile
-    request: ModelRequestOptions
+    reasoning_effort: str | None = None
     context_window: int = DEFAULT_CONTEXT_WINDOW
     vision: bool = False
     pdf_input: bool = False
@@ -72,36 +62,6 @@ def _positive_integer(value: Any, field_name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ModelCatalogError(f"{field_name} 必须是大于 0 的整数")
     return value
-
-
-def _request_options(config: dict, model_ref: str, supported_efforts: tuple[str, ...]) -> ModelRequestOptions:
-    if not isinstance(config, dict):
-        raise ModelCatalogError(f"模型 {model_ref}.request 必须是表")
-    unknown = set(config) - {"temperature", "max_tokens", "reasoning_effort", "extra_body"}
-    if unknown:
-        raise ModelCatalogError(f"模型 {model_ref}.request 包含未知字段：{', '.join(sorted(unknown))}")
-    temperature = config.get("temperature")
-    if temperature is not None:
-        if isinstance(temperature, bool) or not isinstance(temperature, (int, float)) or not math.isfinite(temperature):
-            raise ModelCatalogError(f"模型 {model_ref}.temperature 必须是有限数字")
-    max_tokens = config.get("max_tokens")
-    if max_tokens is not None:
-        max_tokens = _positive_integer(max_tokens, f"模型 {model_ref}.max_tokens")
-    reasoning_effort = config.get("reasoning_effort")
-    if reasoning_effort is not None and reasoning_effort not in supported_efforts:
-        raise ModelCatalogError(f"模型 {model_ref} 的默认推理强度必须属于 supported_reasoning_efforts")
-    extra_body = config.get("extra_body", {})
-    if not isinstance(extra_body, dict):
-        raise ModelCatalogError(f"模型 {model_ref}.extra_body 必须是表")
-    reserved = {"model", "messages", "input", "tools", "tool_choice", "stream", "temperature",
-                "max_tokens", "max_output_tokens", "max_completion_tokens", "reasoning_effort", "reasoning"}
-    forbidden = reserved.intersection(extra_body)
-    if forbidden:
-        raise ModelCatalogError(f"模型 {model_ref}.extra_body 不得覆盖：{', '.join(sorted(forbidden))}")
-    return ModelRequestOptions(
-        temperature=temperature, max_tokens=max_tokens,
-        reasoning_effort=reasoning_effort, extra_body=deepcopy(extra_body),
-    )
 
 
 def build_model_catalog(config: dict | None = None) -> ModelCatalog:
@@ -150,7 +110,7 @@ def build_model_catalog(config: dict | None = None) -> ModelCatalog:
             raise ModelCatalogError(f"模型 {model_ref} 指向的服务商不存在")
         if not isinstance(model_config, dict):
             raise ModelCatalogError(f"模型 {model_ref} 必须是表")
-        unknown = set(model_config) - {"label", "context_window", "vision", "pdf_input", "parallel_tool_calls", "supported_reasoning_efforts", "request"}
+        unknown = set(model_config) - {"label", "context_window", "vision", "pdf_input", "parallel_tool_calls", "supported_reasoning_efforts", "reasoning_effort"}
         if unknown:
             raise ModelCatalogError(f"模型 {model_ref} 包含未知字段：{', '.join(sorted(unknown))}")
         efforts = model_config.get("supported_reasoning_efforts", [])
@@ -158,17 +118,16 @@ def build_model_catalog(config: dict | None = None) -> ModelCatalog:
             raise ModelCatalogError(f"模型 {model_ref} 的推理强度选项必须是非空字符串列表")
         if len(efforts) != len(set(efforts)):
             raise ModelCatalogError(f"模型 {model_ref} 的推理强度选项不能重复")
-        request = _request_options(model_config.get("request", {}), model_ref, tuple(efforts))
+        reasoning_effort = model_config.get("reasoning_effort")
+        if reasoning_effort is not None and reasoning_effort not in efforts:
+            raise ModelCatalogError(f"模型 {model_ref} 的默认推理强度必须属于 supported_reasoning_efforts")
         context_window = _positive_integer(model_config.get("context_window", DEFAULT_CONTEXT_WINDOW), "context_window")
-        output_reserve = request.max_tokens
-        if output_reserve is None:
-            output_reserve = DEFAULT_OUTPUT_RESERVE
-        if output_reserve >= int(context_window * 0.95):
-            raise ModelCatalogError(f"模型 {model_ref}.request.max_tokens 必须小于 context_window 的 95% 可用窗口")
+        if context_window <= DEFAULT_OUTPUT_RESERVE:
+            raise ModelCatalogError("context_window 必须大于本地输出预留预算")
         models[model_ref] = ModelProfile(
             ref=model_ref, provider_id=provider_id, model_id=model_id,
             label=_string(model_config.get("label", model_id), "模型名称"),
-            provider=providers[provider_id], request=request, context_window=context_window,
+            provider=providers[provider_id], reasoning_effort=reasoning_effort, context_window=context_window,
             vision=_boolean(model_config.get("vision", False), "vision"),
             pdf_input=_boolean(model_config.get("pdf_input", False), "pdf_input"),
             parallel_tool_calls=_boolean(model_config.get("parallel_tool_calls", True), "parallel_tool_calls"),

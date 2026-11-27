@@ -11,51 +11,20 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from raccoon.modules.planning.models import TaskPlan
+from raccoon.runtime.model_types import MessagePart, PartKind
 
 if TYPE_CHECKING:
     from raccoon.modules.sessions.compaction import CompactionRecord
 
 
 MessageRole = Literal["user", "assistant", "tool", "system_meta"]
-PartKind = Literal[
-    "text",
-    "tool_call",
-    "tool_result",
-]
+
 
 
 def utc_now_iso() -> str:
     """返回稳定的 UTC ISO 时间字符串，统一 JSONL 里的时间格式。"""
 
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-@dataclass(slots=True)
-class MessagePart:
-    id: str
-    message_id: str
-    kind: PartKind | str
-    content: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "MessagePart":
-        return cls(
-            id=str(value["id"]),
-            message_id=str(value["message_id"]),
-            kind=str(value["kind"]),
-            content=str(value.get("content", "")),
-            metadata=dict(value.get("metadata") or {}),
-        )
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "message_id": self.message_id,
-            "kind": self.kind,
-            "content": self.content,
-            "metadata": self.metadata,
-        }
 
 
 @dataclass(slots=True)

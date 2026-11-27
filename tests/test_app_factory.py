@@ -47,7 +47,7 @@ def test_runtime_lists_mcp_tools_and_closes_the_connection_once(tmp_path):
     try:
         assert manager.connect_calls == 1
         names = runtime.session.tool_registry.names()
-        assert {"write", "mcp__demo__ping"} <= set(names)
+        assert {"write", "mcp__demo__ping", "background_status", "background_cancel"} <= set(names)
         assert runtime.mcp_status()["servers"][0]["tools"] == ["ping"]
     finally:
         runtime.close()

@@ -19,7 +19,7 @@ def model_config():
         "providers": {"local": {"api_key_env": "TEST_MODEL_KEY", "base_url": "https://example.test/v1"}},
         "models": {
             "local/a": {"context_window": 128000, "supported_reasoning_efforts": ["low", "high"],
-                        "request": {"max_tokens": 1000, "reasoning_effort": "high", "temperature": 0}},
+                        "reasoning_effort": "high"},
             "local/b": {"context_window": 64000, "supported_reasoning_efforts": []},
         },
     }
@@ -64,7 +64,7 @@ def test_failed_save_does_not_change_file(model_store):
     record = model_store.records()[0]
     before = model_store.path.read_bytes()
     fields = deepcopy(record["config"])
-    fields["request"]["reasoning_effort"] = "unsupported"
+    fields["reasoning_effort"] = "unsupported"
     with pytest.raises(ModelCatalogError, match="推理强度"):
         model_store.save(fields, identifier=record["id"], revision=record["revision"])
     assert model_store.path.read_bytes() == before
@@ -93,7 +93,7 @@ def test_provider_rejects_credentials_and_protocol_fields(model_config, field, v
 @pytest.mark.parametrize("efforts,default", [([], "high"), (["low"], "high"), (["low", "low"], "low"), ("low", "low")])
 def test_invalid_reasoning_options_are_rejected(model_config, efforts, default):
     model_config["models"]["local/a"]["supported_reasoning_efforts"] = efforts
-    model_config["models"]["local/a"]["request"]["reasoning_effort"] = default
+    model_config["models"]["local/a"]["reasoning_effort"] = default
     with pytest.raises(ModelCatalogError, match="推理强度"):
         build_model_catalog(model_config)
 
@@ -101,13 +101,11 @@ def test_invalid_reasoning_options_are_rejected(model_config, efforts, default):
 def test_factory_reads_only_configured_environment_and_keeps_effort_separate(model_config):
     catalog = build_model_catalog(model_config)
     profile = catalog.models["local/a"]
-    assert "reasoning_effort" not in profile.request.extra_body
+    assert profile.reasoning_effort == "high"
     with pytest.raises(ProviderConfigError, match="TEST_MODEL_KEY"):
         create_provider_for_model(AppConfig(env={"OPENAI_API_KEY": "wrong"}), profile)
     provider = create_provider_for_model(AppConfig(env={"TEST_MODEL_KEY": "offline"}), profile)
     assert provider.model == "a"
-    from raccoon.application.conversations.model_switching import model_request_options
-    assert model_request_options(profile).extra_body == {"reasoning_effort": "high"}
 
 
 def test_import_is_atomic_when_second_model_invalid(model_store, model_config):
@@ -135,8 +133,8 @@ def test_independent_sessions_restore_model_and_effort(tmp_path, model_store, mo
         second.switch_model("local/b")
         assert first.provider.model == "a"
         assert second.provider.model == "b"
-        assert first.request_options.extra_body["reasoning_effort"] == "low"
-        assert "reasoning_effort" not in second.request_options.extra_body
+        assert first.reasoning_effort == "low"
+        assert second.reasoning_effort is None
         with pytest.raises(ValueError, match="不支持"):
             second.set_effort("high")
     finally:
@@ -146,10 +144,10 @@ def test_independent_sessions_restore_model_and_effort(tmp_path, model_store, mo
     second = runtime("second", True)
     try:
         assert first.provider.model == "a"
-        assert first.request_options.extra_body["reasoning_effort"] == "low"
+        assert first.reasoning_effort == "low"
         assert second.provider.model == "b"
         first.set_effort(None)
-        assert first.request_options.extra_body["reasoning_effort"] == "high"
+        assert first.reasoning_effort == "high"
     finally:
         first.close()
         second.close()
@@ -163,7 +161,7 @@ def test_model_api_uses_global_file_and_rejects_plaintext_keys(model_store, web)
     payload = {
         **scope, 'submission_id': 'save',
         'config': {'provider_id': 'other', 'model_id': 'model', 'api_key_env': 'OTHER_KEY',
-                   'supported_reasoning_efforts': ['custom'], 'request': {'reasoning_effort': 'custom'}},
+                   'supported_reasoning_efforts': ['custom'], 'reasoning_effort': 'custom'},
     }
     response = client.post('/api/configuration/models/save', json=payload)
     assert response.status_code == 200, response.text
@@ -231,7 +229,7 @@ def test_explicit_catalog_update_keeps_session_choice_and_effort(tmp_path, model
         model_store._write(changed)
         runtime.update_model_catalog(model_store.read())
         assert runtime.provider.model == "a"
-        assert runtime.request_options.extra_body["reasoning_effort"] == "low"
+        assert runtime.reasoning_effort == "low"
         record = next(record for record in model_store.records() if record["id"] == "local/a")
         model_store.delete(record["id"], record["revision"])
         runtime.update_model_catalog(model_store.read())

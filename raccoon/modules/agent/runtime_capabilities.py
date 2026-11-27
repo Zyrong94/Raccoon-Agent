@@ -20,7 +20,6 @@ class AgentRuntimeCapabilities:
     expose_web_search_tool: bool = True
     enable_process_tools: bool = True
     enable_native_async_tools: bool = True
-    background_tool_names: frozenset[str] | None = None
 
     @classmethod
     def interactive(cls) -> "AgentRuntimeCapabilities":

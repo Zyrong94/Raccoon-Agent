@@ -124,15 +124,15 @@ def test_context_builder_rejects_tampered_absolute_attachment_path(tmp_path: Pat
 
 def test_responses_encodes_multimodal_content() -> None:
     message = ChatMessage(
-        role="user",
-        content="hi",
-        content_parts=[
+                  role="user",
+                  content_parts=[
             ContentPart(type="text", text="hi"),
             ContentPart(type="image", media_type="image/png", data_base64="abc123", filename="x.png"),
         ],
-    )
+                  text="hi",
+              )
     provider = OpenAIResponsesProvider(name="relay", api_key="test", model="test")
-    wire = provider._to_response_input([message])[0]
+    wire = provider._build_input_items([message])[0]
     assert wire["role"] == "user"
     assert wire["content"][0] == {"type": "input_text", "text": "hi"}
     assert wire["content"][1] == {"type": "input_image", "image_url": "data:image/png;base64,abc123"}

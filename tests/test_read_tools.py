@@ -11,7 +11,8 @@ import raccoon.runtime.git as git_utils
 from raccoon.runtime.subprocess import CommandResult
 from raccoon.runtime.sandbox import PathSandbox
 import raccoon.modules.tools.grep as grep_module
-from raccoon.modules.tools import create_builtin_registry
+from raccoon.modules.tools.registry import ToolRegistry
+from raccoon.modules.tools import create_builtin_tools
 
 
 def _completed(args, returncode=0, stdout="", stderr=""):
@@ -22,7 +23,8 @@ def test_tree_shows_directory_structure(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "app.py").write_text("print('hi')", encoding="utf-8")
     (tmp_path / "README.md").write_text("# readme", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "tree", {"max_depth": 2})
 
@@ -33,7 +35,8 @@ def test_tree_shows_directory_structure(tmp_path):
 
 
 def test_tree_rejects_paths_outside_root(tmp_path):
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "tree", {"path": ".."})
 
@@ -45,7 +48,8 @@ def test_ls_returns_sorted_entries_and_respects_max_entries(tmp_path):
     (tmp_path / "zeta.txt").write_text("z", encoding="utf-8")
     (tmp_path / "alpha.txt").write_text("a", encoding="utf-8")
     (tmp_path / "src").mkdir()
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "ls", {"max_entries": 2})
 
@@ -57,7 +61,8 @@ def test_ls_returns_sorted_entries_and_respects_max_entries(tmp_path):
 def test_view_reads_utf8_text_inside_root(tmp_path):
     target = tmp_path / "README.md"
     target.write_text("第一行\n第二行\n第三行\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "view", {"path": "README.md", "start_line": 2, "end_line": 2})
 
@@ -73,7 +78,8 @@ def test_view_reads_utf8_text_inside_root(tmp_path):
 def test_tools_reject_paths_outside_root(tmp_path):
     outside = tmp_path.parent / "outside.txt"
     outside.write_text("secret", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "view", {"path": "../outside.txt"})
 
@@ -84,7 +90,8 @@ def test_tools_reject_paths_outside_root(tmp_path):
 def test_sensitive_file_read_requires_permission_confirmation(tmp_path):
     secret = tmp_path / "private.key"
     secret.write_text("PRIVATE_KEY=secret\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
     manager = PermissionManager(policy=DefaultPermissionPolicy(tmp_path))
     permissioned = partial(execute_tool, registry, permission_manager=manager)
 
@@ -101,7 +108,8 @@ def test_read_multi_checks_all_requested_paths_before_reading(tmp_path):
     secret = tmp_path / "private.key"
     safe.write_text("safe\n", encoding="utf-8")
     secret.write_text("PRIVATE_KEY=secret\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
     manager = PermissionManager(policy=DefaultPermissionPolicy(tmp_path))
     permissioned = partial(execute_tool, registry, permission_manager=manager)
 
@@ -116,7 +124,8 @@ def test_read_multi_checks_all_requested_paths_before_reading(tmp_path):
 def test_grep_finds_matching_lines(tmp_path):
     source = tmp_path / "raccoon.py"
     source.write_text("alpha\nRaccoon agent\nbeta\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "grep", {"pattern": "raccoon", "include": "*.py"})
 
@@ -145,7 +154,8 @@ def test_grep_with_rg_filters_sensitive_environment(tmp_path, monkeypatch):
     monkeypatch.setattr(grep_module, "run_command", fake_run_command)
     monkeypatch.setenv("SEARCH_API_KEY", "secret")
     monkeypatch.setenv("RACCOON_VISIBLE_TEST_FLAG", "visible")
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "grep", {"pattern": "raccoon", "include": "*.py"})
 
@@ -159,7 +169,8 @@ def test_grep_falls_back_to_python_when_rg_is_missing(tmp_path, monkeypatch):
     source = tmp_path / "src" / "raccoon.py"
     source.write_text("alpha\nRaccoon agent\nbeta\n", encoding="utf-8")
     monkeypatch.setattr(grep_module.shutil, "which", lambda _name: None)
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "grep", {"pattern": "raccoon", "include": "*.py"})
 
@@ -173,7 +184,8 @@ def test_glob_finds_matching_paths(tmp_path):
     (tmp_path / "raccoon").mkdir()
     (tmp_path / "raccoon" / "app.py").write_text("print('hi')", encoding="utf-8")
     (tmp_path / "README.md").write_text("# readme", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "glob", {"pattern": "**/*.py"})
 
@@ -185,7 +197,8 @@ def test_glob_respects_max_results_after_sorting(tmp_path):
     (tmp_path / "c.py").write_text("c", encoding="utf-8")
     (tmp_path / "a.py").write_text("a", encoding="utf-8")
     (tmp_path / "b.py").write_text("b", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "glob", {"pattern": "*.py", "max_results": 2})
 
@@ -203,7 +216,8 @@ def test_git_status_reports_worktree_status(tmp_path, monkeypatch):
         return _completed(args, returncode=1, stderr="unexpected")
 
     monkeypatch.setattr(git_utils, "run_git", fake_run_git)
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "git_status")
 
@@ -218,7 +232,8 @@ def test_git_status_returns_error_outside_git_repo(tmp_path, monkeypatch):
         "run_git",
         lambda _sandbox, args: _completed(args, returncode=1, stderr="not a git repo"),
     )
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "git_status")
 
@@ -237,7 +252,8 @@ def test_git_diff_reports_changes(tmp_path, monkeypatch):
         return _completed(args, returncode=1, stderr="unexpected")
 
     monkeypatch.setattr(git_utils, "run_git", fake_run_git)
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "git_diff", {"path": "README.md"})
 
@@ -253,7 +269,8 @@ def test_git_diff_returns_error_outside_git_repo(tmp_path, monkeypatch):
         "run_git",
         lambda _sandbox, args: _completed(args, returncode=1, stderr="not a git repo"),
     )
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "git_diff")
 
@@ -270,7 +287,8 @@ def test_git_diff_truncates_large_diff(tmp_path, monkeypatch):
         return _completed(args, returncode=1, stderr="unexpected")
 
     monkeypatch.setattr(git_utils, "run_git", fake_run_git)
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "git_diff", {"max_chars": 3})
 
@@ -280,7 +298,8 @@ def test_git_diff_truncates_large_diff(tmp_path, monkeypatch):
 
 
 def test_git_diff_rejects_path_outside_root(tmp_path):
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "git_diff", {"path": "../outside.txt"})
 
@@ -291,7 +310,8 @@ def test_git_diff_rejects_path_outside_root(tmp_path):
 def test_view_character_cap_continuation_has_no_missing_lines(tmp_path):
     lines = [str(i) + "中文" * 250 for i in range(350)]
     (tmp_path / "long.txt").write_text("\n".join(lines), encoding="utf-8")
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
     start, received = 1, []
     while start is not None:
         result = execute_tool(registry, "view", {"path": "long.txt", "start_line": start})
@@ -311,7 +331,7 @@ def test_view_character_cap_continuation_has_no_missing_lines(tmp_path):
 
 def test_view_oversized_line_gives_actionable_error(tmp_path):
     (tmp_path / "long.txt").write_text("x" * 60000, encoding="utf-8")
-    result = execute_tool(create_builtin_registry(tmp_path), "view", {"path": "long.txt"})
+    result = execute_tool(ToolRegistry(create_builtin_tools(tmp_path)), "view", {"path": "long.txt"})
     assert not result.ok
     assert "shell" in result.content
     assert len(result.content) <= 50000
@@ -319,6 +339,7 @@ def test_view_oversized_line_gives_actionable_error(tmp_path):
 
 def test_view_rejects_invalid_line_ranges(tmp_path):
     (tmp_path / "a.txt").write_text("a", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
     for args in ({"start_line": 0}, {"end_line": 0}, {"start_line": 3, "end_line": 2}):
         assert not execute_tool(registry, "view", {"path": "a.txt", **args}).ok

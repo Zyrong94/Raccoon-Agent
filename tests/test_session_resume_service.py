@@ -1,5 +1,6 @@
 """Open the session through the current bootstrap entry."""
 
+from raccoon.runtime.model_types import MessagePart
 from raccoon.bootstrap.agent_session import open_session
 from raccoon.modules.sessions.store import SessionStore
 from raccoon.runtime.model_types import ChatResponse, ToolCall
@@ -11,7 +12,9 @@ def test_open_session_reads_current_project_rules_and_closes_an_unfinished_tool_
     data = store.create()
     store.append_user_message(data, "Read a file", user_timezone="UTC")
     store.append_assistant_response(data, ChatResponse(
-        provider="fake", model="fake", content="", tool_calls=[ToolCall("read", "view", {"path": "README.md"})],
+        provider="fake",
+        model="fake",
+        parts=[MessagePart.from_tool_call(call) for call in ([ToolCall("read", "view", {"path": "README.md"})])],
     ))
 
     session = open_session(store=store, project_root=tmp_path, session_id=data.session_id)

@@ -19,7 +19,7 @@ const importPathPlaceholders:Record<ConfigurationDomain,string>={models:'~/confi
 // Subagent forms list skills, so that tab reads both lists; the rest read one domain each.
 const domainKeys=['models','mcp','skills','subagents'] as const;
 const domainScope=(value:ConfigurationDomain)=>value==='subagents'?'subagents,skills':value;
-const fieldNames:Record<string,string>={provider_id:'提供商标识',provider_type:'提供商协议',model_id:'模型 ID',label:'显示名称',base_url:'API 地址',api_key_env:'密钥环境变量',context_window:'上下文窗口（tokens）',vision:'支持图片',pdf_input:'支持 PDF',default:'默认模型',parallel_tool_calls:'并行工具调用',name:'名称',type:'连接方式',command:'启动命令与参数',url:'服务 URL',bearer_token_env_var:'Token 环境变量',enabled:'启用服务',timeout_ms:'超时（毫秒）',allowed_tools:'允许的工具',tools:'允许的工具',skills:'引用技能',max_tool_rounds:'工具轮数上限',max_provider_calls:'模型调用上限',max_turn_seconds:'执行时限（秒）',allow_background:'允许后台执行',requires_worktree:'要求隔离工作树'};
+const fieldNames:Record<string,string>={provider_id:'提供商标识',provider_type:'提供商协议',model_id:'模型 ID',label:'显示名称',base_url:'API 地址',api_key_env:'密钥环境变量',context_window:'上下文窗口（tokens）',vision:'支持图片',pdf_input:'支持 PDF',default:'默认模型',parallel_tool_calls:'并行工具调用',name:'名称',type:'连接方式',command:'启动命令与参数',url:'服务 URL',bearer_token_env_var:'Token 环境变量',enabled:'启用服务',timeout_ms:'超时（毫秒）',allowed_tools:'允许的工具',tools:'允许的工具',skills:'引用技能',allow_background:'允许后台执行',requires_worktree:'要求隔离工作树'};
 function displayValue(key:string,value:unknown){
  if(value==null)return ['tools','skills'].includes(key)?'继承父代理':key==='allowed_tools'?'不限制':'使用默认值';
  if(key==='type')return value==='remote'?'远程服务 · HTTP':'本地进程 · stdio';

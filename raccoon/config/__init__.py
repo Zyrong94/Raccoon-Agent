@@ -4,7 +4,6 @@ from raccoon.config.models import (
     ModelCatalog,
     ModelCatalogError,
     ModelProfile,
-    ModelRequestOptions,
     ProviderProfile,
 )
 from raccoon.config.settings import AppConfig, load_config
@@ -15,6 +14,5 @@ __all__ = [
     "ModelCatalog",
     "ModelCatalogError",
     "ModelProfile",
-    "ModelRequestOptions",
     "ProviderProfile",
 ]

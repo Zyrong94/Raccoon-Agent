@@ -8,7 +8,6 @@ from uuid import uuid4
 
 from raccoon.app.session_runtime import SessionRuntime
 from raccoon.app.conversations import SessionKey
-from raccoon.modules.agent.loop_limits import AgentLoopLimits
 from raccoon.modules.agent.runtime_capabilities import AgentRuntimeCapabilities
 from raccoon.modules.collaboration.sessions import SubagentRequest, create_subagent_session, load_subagent_session, validate_subagent_boundary, build_subagent_result, build_subagent_prompt
 from raccoon.modules.collaboration.worktree import Worktree
@@ -79,11 +78,9 @@ def run_subagent_operation(parent, coroutine):
 
 
 def _runtime(parent, subagent):
-    config = subagent.subagent_config
     return SessionRuntime(session=subagent, provider=parent.provider,
         tools=subagent.tool_registry.tools(supplied_only=True),
-        limits=AgentLoopLimits(config.max_tool_rounds, config.max_provider_calls, config.max_turn_seconds),
-        request_options=parent.request_options, auxiliary_models=parent.auxiliary_models,
+        reasoning_effort=parent.reasoning_effort, auxiliary_models=parent.auxiliary_models,
         context_window=parent.context_window,
         runtime_capabilities=AgentRuntimeCapabilities(allow_user_input=False, enable_delegate_tool=False),
         execution_root=subagent.store.root)
@@ -106,7 +103,7 @@ def _register_callbacks(parent, runtime):
         if subagent.data.metadata.get('subagent_execution_scope') != parent.session.subagent_scope:
             raise ValueError('子会话授权作用域已变化')
         validate_subagent_boundary(subagent)
-        runtime.set_model(parent.provider, request_options=parent.request_options, context_window=parent.context_window)
+        runtime.set_model(parent.provider, reasoning_effort=parent.reasoning_effort, context_window=parent.context_window)
         subagent.store.append_session_metadata_updated(subagent.data, subagent_run_id=event.id)
 
     def finished(receipt):

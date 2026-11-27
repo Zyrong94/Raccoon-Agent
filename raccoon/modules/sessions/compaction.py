@@ -10,6 +10,7 @@ class CompactionRecord:
     summary: str
     first_kept_message_id: str
     tokens_before: int
+    reasoning_cutoff_message_id: str
     usage: TokenUsage | None = None
 
     def to_dict(self) -> dict:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from raccoon.runtime.model_types import MessagePart
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, replace
@@ -14,17 +15,15 @@ import anyio
 from raccoon.runtime.cancellation import AgentCancelledError, CancellationToken
 from raccoon.runtime.user_input import UserInputRequest
 from raccoon.runtime import CompletionInput, MessageInput, TimerInput, SubagentInput
-from raccoon.modules.agent.loop_limits import AgentLoopLimits, AgentLoopStopReason
 from raccoon.modules.agent.runtime_capabilities import AgentRuntimeCapabilities, PLANNING_TOOL_NAMES
 from raccoon.modules.agent.session import AgentSession
-from raccoon.modules.agent.telemetry import AgentTurnTelemetry
 from raccoon.modules.agent.task_plan_policy import final_reconciliation_instruction
 from raccoon.modules.agent.status_bar import render_agent_status
 from raccoon.modules.context.compaction import effective_messages
 from raccoon.modules.agent import tool_execution
 from raccoon.modules.agent.tool_execution import ToolExecutionEvent
 from raccoon.modules.agent.tool_settlement import append_interrupted_tail
-from raccoon.modules.tools.background_controls import DEFAULT_BACKGROUND_TOOL_NAMES, with_background_controls, with_task_handle_control
+from raccoon.modules.tools.background_controls import with_background_controls, with_task_handle_control
 from raccoon.runtime.background import BackgroundJobManager, BackgroundNotification
 from raccoon.modules.agent.background_results import render_task_notification
 from raccoon.modules.context.context_builder import ContextBuilder
@@ -35,7 +34,7 @@ from raccoon.modules.sessions.user_attachments import UserAttachment, resolve_qu
 from raccoon.modules.permissions.types import PermissionRequest
 from raccoon.runtime.model_provider import AuxiliaryModels, ChatProvider
 from raccoon.runtime.model_errors import ProviderError
-from raccoon.runtime.model_types import ChatRequest, ChatResponse, MainRequestOptions, ToolCall
+from raccoon.runtime.model_types import ChatRequest, ChatResponse, ToolCall
 from raccoon.modules.tools.types import Tool, ToolResult, make_error_result, make_text_result
 
 
@@ -75,19 +74,16 @@ class AgentRun:
         tool_catalog_status: Callable[[], str] | None = None,
         context_builder: ContextBuilder | None = None,
         compaction_settings: CompactionSettings | None = None,
-        limits: AgentLoopLimits | None = None,
-        clock=time.monotonic,
         response_handler: Callable[[ChatResponse], None] | None = None,
         request_input: Callable[[UserInputRequest], Awaitable[str]] | None = None,
         tool_event_handler: Callable[[ToolExecutionEvent], None] | None = None,
         run_phase_handler: Callable[[AgentRunPhase | None], None] | None = None,
         cancellation_token: CancellationToken | None = None,
-        request_options: MainRequestOptions | None = None,
+        reasoning_effort: str | None = None,
         auxiliary_models: AuxiliaryModels = AuxiliaryModels(),
         routing_timeout_seconds: float | None = None,
         context_window: int | None = None,
         background_manager: BackgroundJobManager | None = None,
-        background_tool_names: frozenset[str] | None = None,
         enable_delegate_tool: bool | None = None,
         runtime_capabilities: AgentRuntimeCapabilities | None = None,
         memory_service=None,
@@ -117,23 +113,12 @@ class AgentRun:
         self.native_async_tools = native_async_tools
         self._projected_native_completions: dict[str, dict[str, str]] = {}
         self._native_calls_started: set[str] = set()
-        self.request_options = request_options or MainRequestOptions()
+        self.reasoning_effort = reasoning_effort
         self.auxiliary_models = auxiliary_models
         self.routing_timeout_seconds = routing_timeout_seconds
         self.context_window = context_window
         self.context_builder = context_builder or ContextBuilder()
         self.compaction_settings = compaction_settings or CompactionSettings()
-        configured_limits = AgentLoopLimits.default()
-        capability_config = session.subagent_config
-        if capability_config is not None:
-            configured_limits = replace(configured_limits, **{
-                key: getattr(capability_config, key)
-                for key in ("max_tool_rounds", "max_provider_calls", "max_turn_seconds")
-                if getattr(capability_config, key) is not None
-            })
-        self.limits = limits or configured_limits
-        self.clock = clock
-        self.turn_started_at: float | None = None
         self.response_handler = response_handler
         self.request_input = request_input
         self.tool_event_handler = tool_event_handler
@@ -141,19 +126,12 @@ class AgentRun:
         self.cancellation_token = cancellation_token
         self.background_manager = background_manager
         self.runtime_capabilities = runtime_capabilities or AgentRuntimeCapabilities.interactive()
-        configured_background_names = self.runtime_capabilities.background_tool_names
-        self.background_tool_names = (
-            background_tool_names
-            if background_tool_names is not None
-            else configured_background_names or DEFAULT_BACKGROUND_TOOL_NAMES
-        )
         self.enable_delegate_tool = (
             self.runtime_capabilities.enable_delegate_tool
             if enable_delegate_tool is None
             else enable_delegate_tool
         )
         self._task_plan_reconciliation_attempted = False
-        self.turn_telemetry = AgentTurnTelemetry()
         # session 创建时通常已经注册了 session-scoped 工具。这里允许调用方再传入一批
         # 测试或临时工具，但避免重复注册同名工具导致模型 schema 不稳定。
         if tools is not None:
@@ -237,7 +215,7 @@ class AgentRun:
             messages=messages,
             tools=definitions,
             tool_choice=tool_choice,
-            **self.request_options.as_chat_request_kwargs(),
+            reasoning_effort=self.reasoning_effort,
         )
 
     async def request_model_response(
@@ -251,8 +229,6 @@ class AgentRun:
             tool_choice=tool_choice,
             runtime_instruction=runtime_instruction,
         )
-        self._reserve_provider_call()
-        self._check_turn_timeout()
         self._check_cancelled()
         with self._report_thinking():
             try:
@@ -267,7 +243,6 @@ class AgentRun:
                 view = self.session.data
                 messages = self._request_messages(view=view)
                 request = self._main_chat_request(messages, self._provider_tool_definitions(), tool_choice)
-                self._reserve_provider_call()
                 response = await self._await_model_response(request)
                 prepared = replace(prepared, request=request,
                     tool_result_part_ids=self.context_builder.projected_tool_result_part_ids(view),
@@ -279,13 +254,12 @@ class AgentRun:
         return response
 
     async def _await_model_response(self, request: ChatRequest) -> ChatResponse:
-        """等待网络请求时仍检查跨线程的停止信号和本轮时间上限。"""
+        """等待网络请求时仍检查跨线程的停止信号。"""
         request_task = asyncio.create_task(self.provider.acomplete(request))
         try:
             while not request_task.done():
                 await asyncio.wait({request_task}, timeout=0.1)
                 self._check_cancelled()
-                self._check_turn_timeout()
             return await request_task
         finally:
             if not request_task.done():
@@ -310,27 +284,14 @@ class AgentRun:
 
 
     def finish_turn(self, response: ChatResponse) -> ChatResponse:
-        """保存最终响应、发布展示通知并记录本轮结束状态。"""
+        """保存最终响应并通知调用方。"""
         self.session.store.append_assistant_response(self.session.data,
             response, native_completions=list(self._projected_native_completions.values())
             if response.finish_reason in (None, "stop") and not response.tool_calls else None,
          scheduled_run_id=self.session.scheduled_run_id)
         self._publish_response(response)
-        status = "completed"
-        if response.finish_reason == "interrupted":
-            status = "interrupted"
-        elif response.finish_reason == "length" or response.finish_reason in {
-            reason.value for reason in AgentLoopStopReason
-        }:
-            status = "limited"
-        elif response.finish_reason in {"error", "content_filter"}:
-            status = "errored"
-        self._persist_turn_telemetry(
-            status=status,
-            stop_reason=response.finish_reason or "completed",
-            finalize=True,
-        )
-        if status == "completed" and self.memory_service is not None and self._memory_message_id and not self._memory_submitted:
+        if (response.finish_reason not in {"interrupted", "length", "error", "content_filter"}
+                and self.memory_service is not None and self._memory_message_id and not self._memory_submitted):
             self._memory_submitted = True
             try:
                 self.memory_service.submit_turn(
@@ -522,7 +483,7 @@ class AgentRun:
             from raccoon.modules.agent.native_async import consume_native_result
             return consume_native_result(
                 self.session, message, self.background_manager,
-                observe=self._observe_tool_result, emit=self._emit_tool_event,
+                emit=self._emit_tool_event,
             )
         existing = self.session.store.background_notification_message_id(self.session.data, message.event_id, job_id=message.job_id, run_id=message.run_id)
         if existing is not None:
@@ -562,7 +523,7 @@ class AgentRun:
             messages=messages,
             tools=definitions,
             context_window=self.context_window,
-            max_output_tokens=self.request_options.max_tokens,
+            output_reserve=self.compaction_settings.reserve_tokens,
             history_overhead_tokens=self.provider.estimate_replay_tokens(messages),
         )
 
@@ -586,7 +547,7 @@ class AgentRun:
         self.session.store.append_event(self.session.data, "compaction_started", {"reason": reason})
         task = asyncio.create_task(generate_compaction(
             preparation, session_id=view.session_id, provider=self.auxiliary_models.context_summary,
-            request_options=MainRequestOptions(), instructions=instructions,
+            reasoning_effort=None, instructions=instructions,
         ))
         try:
             while not task.done():
@@ -594,6 +555,7 @@ class AgentRun:
                 self._check_cancelled()
             record = await task
             self._check_cancelled()
+            record.reasoning_cutoff_message_id = self.session.data.messages[-1].id
             # Validate the same provider projection used on the next request.
             candidate = replace(view, compactions=[*view.compactions, record])
             self._build_provider_messages(candidate, system_prefix=[])
@@ -606,8 +568,10 @@ class AgentRun:
             # Pi reports a failed threshold compaction and returns to its caller.
             # No extra "does the original request still fit" decision is made.
             self._publish_response(ChatResponse(
-                provider=self.provider.name, model=self.provider.model,
-                content=f"上下文压缩失败：{error}", finish_reason="error",
+                provider=self.provider.name,
+                model=self.provider.model,
+                finish_reason="error",
+                parts=[MessagePart(kind="text", content=f"上下文压缩失败：{error}")],
             ))
             return None
         except (asyncio.CancelledError, AgentCancelledError):
@@ -660,7 +624,7 @@ class AgentRun:
 
     def _request_messages(self, *, view=None):
         had_pending = bool(self.session.pending_tool_definitions)
-        self.session.flush_tool_definitions()
+        self.session.save_pending_tool_definitions()
         resolved_view = self.session.data if had_pending or view is None else view
         system_prefix = self.session.build_system_prefix()
         return self._build_provider_messages(
@@ -688,9 +652,7 @@ class AgentRun:
             allowed = self.session.allowed_tool_names
             if allowed is not None and definition.name not in allowed:
                 continue
-            if definition.name in PLANNING_TOOL_NAMES and not self.runtime_capabilities.expose_planning_tools:
-                continue
-            if self._runtime_tool_visibility_error(ToolCall("catalog", definition.name, {})) is not None:
+            if self._tool_unavailability_reason(definition.name) is not None:
                 continue
             definitions.append(self._augment_tool_definition(definition))
         return definitions
@@ -698,13 +660,14 @@ class AgentRun:
     def _augment_tool_definition(self, definition):
         """给后台可用工具的 schema 附加 run_in_background/background_label 控制字段。
 
-        只有在启用了 background_manager 且工具在允许列表里时才增强，避免向模型暴露它
+        只有在启用了 background_manager 且工具声明支持后台执行时才增强，避免向模型暴露它
         无法真正使用的控制字段。
         """
 
         if self.background_manager is None or not self.session.allow_background_execution:
             return definition
-        if definition.name not in self.background_tool_names:
+        tool = self.session.tool_registry.get(definition.name)
+        if tool is None or not tool.supports_background:
             return definition
         if self.native_async_tools:
             return replace(with_task_handle_control(definition), async_execution=True)
@@ -717,9 +680,7 @@ class AgentRun:
         self._memory_message_id = None
         self._memory_user_text = ""
         self._memory_submitted = False
-        self.turn_started_at = self.clock()
         self._task_plan_reconciliation_attempted = False
-        self.turn_telemetry.begin()
 
     def _validate_tool_call(self, tool_call: ToolCall, *, loaded_definitions=None) -> ToolResult | None:
         error = self.session.tool_authorization_error(tool_call)
@@ -728,7 +689,8 @@ class AgentRun:
         catalog = {definition.name: definition for definition in self._discoverable_tool_definitions()}
         definition = catalog.get(tool_call.name)
         if definition is None:
-            return make_error_result(tool_call.name, "Tool is unavailable in the current runtime.", tool_not_routed=True)
+            reason = self._tool_unavailability_reason(tool_call.name) or "Tool is unavailable in the current runtime."
+            return make_error_result(tool_call.name, reason, tool_not_routed=True)
         if tool_call.async_execution and (not self.session.allow_background_execution or not self.native_async_tools or not definition.async_execution):
             return make_error_result(tool_call.name, "Tool does not support async execution in the current runtime.", tool_not_routed=True)
         tool = self.session.tool_registry.get(tool_call.name)
@@ -738,49 +700,20 @@ class AgentRun:
         from raccoon.modules.tools.execution import validate_arguments
         return validate_arguments(tool, tool_call.arguments)
 
-    def _observe_tool_result(self, tool_call: ToolCall, result: ToolResult) -> None:
-        self.turn_telemetry.observe_tool_result(
-            tool_call,
-            result,
-            elapsed_seconds=self._turn_elapsed_seconds(),
-        )
-
-    def _runtime_tool_visibility_error(self, tool_call: ToolCall) -> ToolResult | None:
-        if tool_call.name == "view_image" and not bool(getattr(getattr(self.provider, "capabilities", None), "supports_vision", False)):
-            return make_error_result(tool_call.name, "当前模型未声明视觉能力，无法查看图片。", tool_not_routed=True)
-        if tool_call.name == "think" and not self.runtime_capabilities.expose_think_tool:
-            return make_error_result(
-                tool_call.name,
-                "当前运行模式未暴露 think 工具。",
-                tool_not_routed=True,
-            )
-        if tool_call.name == "ask_user" and not self.runtime_capabilities.allow_user_input:
-            return make_error_result(
-                tool_call.name,
-                "当前运行模式未启用 ask_user。",
-                tool_not_routed=True,
-            )
-        if tool_call.name == "web_search" and not self.runtime_capabilities.expose_web_search_tool:
-            return make_error_result(
-                tool_call.name,
-                "当前运行模式未启用 web_search。",
-                tool_not_routed=True,
-            )
-        if (
-            tool_call.name in PLANNING_TOOL_NAMES
-            and not self.runtime_capabilities.expose_planning_tools
-        ):
-            return make_error_result(
-                tool_call.name,
-                "当前任务被路由为简单单任务，未暴露 TaskPlan 工具；请直接完成并验证目标。",
-                tool_not_routed=True,
-            )
-        if tool_call.name == "delegate" and not self.enable_delegate_tool:
-            return make_error_result(
-                tool_call.name,
-                "当前任务未启用子代理；请使用主代理工具直接完成。",
-                tool_not_routed=True,
-            )
+    def _tool_unavailability_reason(self, name: str) -> str | None:
+        """Return the runtime restriction, or None when this tool is not restricted."""
+        if name == "view_image" and not bool(getattr(getattr(self.provider, "capabilities", None), "supports_vision", False)):
+            return "当前模型未声明视觉能力，无法查看图片。"
+        if name == "think" and not self.runtime_capabilities.expose_think_tool:
+            return "当前运行模式未暴露 think 工具。"
+        if name == "ask_user" and not self.runtime_capabilities.allow_user_input:
+            return "当前运行模式未启用 ask_user。"
+        if name == "web_search" and not self.runtime_capabilities.expose_web_search_tool:
+            return "当前运行模式未启用 web_search。"
+        if name in PLANNING_TOOL_NAMES and not self.runtime_capabilities.expose_planning_tools:
+            return "当前任务被路由为简单单任务，未暴露 TaskPlan 工具；请直接完成并验证目标。"
+        if name == "delegate" and not self.enable_delegate_tool:
+            return "当前任务未启用子代理；请使用主代理工具直接完成。"
         return None
 
 
@@ -933,7 +866,6 @@ class AgentRun:
         try:
             while remaining:
                 self._check_cancelled()
-                self._check_turn_timeout()
                 for job_id in list(remaining):
                     job = self.background_manager.get(job_id, session_id=self.session.session_id)
                     if job is None:
@@ -963,74 +895,11 @@ class AgentRun:
         jobs = self._unsettled_native_jobs()
         if not jobs:
             return False
-        self._check_provider_call_limit()
         self._wait_for_jobs(jobs)
         return True
 
     async def _settle_native_async_results_async(self) -> bool:
         return await anyio.to_thread.run_sync(self._settle_native_async_results)
-
-    def _check_provider_call_limit(self) -> None:
-        limit = self.limits.max_provider_calls
-        if limit is not None and self.turn_telemetry.provider_calls >= limit:
-            raise _AgentLoopLimitReached(AgentLoopStopReason.PROVIDER_CALL_LIMIT)
-
-    def _reserve_provider_call(self) -> None:
-        self._check_provider_call_limit()
-        self.turn_telemetry.observe_provider_call()
-
-    def _turn_elapsed_seconds(self) -> float:
-        if self.turn_started_at is None:
-            return 0.0
-        return max(0.0, self.clock() - self.turn_started_at)
-
-    def _persist_turn_telemetry(
-        self,
-        *,
-        status: str,
-        stop_reason: str,
-        finalize: bool,
-        provider_failure_category: str | None = None,
-    ) -> None:
-        payload = self.turn_telemetry.snapshot(
-            status=status,
-            stop_reason=stop_reason,
-            elapsed_seconds=self._turn_elapsed_seconds(),
-            provider_failure_category=provider_failure_category,
-            finalize=finalize,
-        )
-        if payload is not None:
-            self.session.store.append_event(self.session.data, "agent_turn_telemetry", payload)
-
-    def _persist_errored_turn(self, exc: BaseException) -> None:
-        if not self.turn_telemetry.active:
-            return
-        if (
-            isinstance(exc, AgentCancelledError | KeyboardInterrupt)
-            or type(exc).__name__ == "CancelledError"
-        ):
-            self._append_interrupted_tool_results()
-            self._persist_turn_telemetry(
-                status="interrupted",
-                stop_reason="interrupted",
-                finalize=True,
-            )
-            return
-        provider_category = exc.kind.value if isinstance(exc, ProviderError) else None
-        stop_reason = provider_category or type(exc).__name__
-        self._persist_turn_telemetry(
-            status="errored",
-            stop_reason=stop_reason,
-            provider_failure_category=provider_category,
-            finalize=True,
-        )
-
-    def _check_turn_timeout(self) -> None:
-        limit = self.limits.max_turn_seconds
-        if limit is None or self.turn_started_at is None:
-            return
-        if self.clock() - self.turn_started_at >= limit:
-            raise _AgentLoopLimitReached(AgentLoopStopReason.TURN_TIMEOUT)
 
     def _is_cancelled(self) -> bool:
         return self.cancellation_token is not None and self.cancellation_token.is_cancelled
@@ -1039,82 +908,45 @@ class AgentRun:
         if self.cancellation_token is not None:
             self.cancellation_token.raise_if_cancelled()
 
-    def _tool_round_limit_response(self, response: ChatResponse) -> ChatResponse:
-        """工具轮次上限命中后，只保存纯文本说明，避免写入未执行的 tool_call。"""
-
-        return self._limit_response(AgentLoopStopReason.TOOL_ROUND_LIMIT, raw=response.raw)
-
-    def _limit_response(self, reason: AgentLoopStopReason, *, raw: dict | None = None) -> ChatResponse:
-        messages = {
-            AgentLoopStopReason.PROVIDER_CALL_LIMIT: (f"provider 调用次数达到上限（max_provider_calls={self.limits.max_provider_calls}），已停止继续执行。"),
-            AgentLoopStopReason.TURN_TIMEOUT: (f"本轮任务耗时达到上限（max_turn_seconds={self.limits.max_turn_seconds}），已停止继续执行。"),
-            AgentLoopStopReason.TOOL_ROUND_LIMIT: (f"工具调用轮次达到上限（max_tool_rounds={self.limits.max_tool_rounds}），已停止继续执行工具。"),
-        }
-        return ChatResponse(
-            provider=self.provider.name,
-            model=self.provider.model,
-            content=messages[reason],
-            tool_calls=[],
-            finish_reason=reason.value,
-            raw=raw,
-        )
-
     def _interrupted_response(self) -> ChatResponse:
         return ChatResponse(
             provider=self.provider.name,
             model=self.provider.model,
-            content="当前任务已中断。",
-            tool_calls=[],
             finish_reason="interrupted",
-            raw={"interrupted": True},
+            parts=[MessagePart(kind="text", content="当前任务已中断。")] + [MessagePart.from_tool_call(call) for call in ([])],
         )
 
 
-class _AgentLoopLimitReached(Exception):
-    def __init__(self, reason: AgentLoopStopReason) -> None:
-        super().__init__(reason.value)
-        self.reason = reason
-
-
 async def run_agent(run: AgentRun) -> ChatResponse:
-    """接入输入、调用模型、执行工具；直到结束、失败或用户停止。"""
+    """接入输入、调用模型、执行工具，直到模型回答、用户中断或调用失败。"""
     try:
         run._begin_turn()
         run._repair_interrupted_tool_calls_before_provider_request()
         run._check_cancelled()
         run._append_initial_input()
-        rounds = 0
+        runtime_instruction = None
         try:
-            if run.limits.max_tool_rounds is not None and run.limits.max_tool_rounds <= 0:
-                response = run._limit_response(AgentLoopStopReason.TOOL_ROUND_LIMIT)
-            else:
+            while True:
+                response = await run.request_model_response(runtime_instruction=runtime_instruction)
                 runtime_instruction = None
-                while True:
-                    response = await run.request_model_response(runtime_instruction=runtime_instruction)
-                    runtime_instruction = None
-                    run._check_cancelled()
-                    if response.tool_calls:
-                        run.session.store.append_assistant_response(run.session.data, response,
-                            scheduled_run_id=run.session.scheduled_run_id)
-                        run._publish_response(response)
-                        await tool_execution.execute_tool_batch(run, response.tool_calls)
-                        run.session.flush_tool_definitions()
-                        rounds += 1
-                        if run.limits.max_tool_rounds is not None and rounds >= run.limits.max_tool_rounds:
-                            response = run._tool_round_limit_response(response)
-                            break
+                run._check_cancelled()
+                if response.tool_calls:
+                    run.session.store.append_assistant_response(
+                        run.session.data, response, scheduled_run_id=run.session.scheduled_run_id,
+                    )
+                    run._publish_response(response)
+                    await tool_execution.execute_tool_batch(run, response.tool_calls)
+                    run.session.save_pending_tool_definitions()
+                    continue
+                if await run._settle_native_async_results_async():
+                    continue
+                runtime_instruction = run._final_reconciliation_instruction()
+                if runtime_instruction is not None:
+                    continue
+                if response.finish_reason in (None, "stop") and run.try_close_input is not None:
+                    if not run.try_close_input():
                         continue
-                    if await run._settle_native_async_results_async():
-                        continue
-                    runtime_instruction = run._final_reconciliation_instruction()
-                    if runtime_instruction is not None:
-                        continue
-                    if response.finish_reason in (None, "stop") and run.try_close_input is not None:
-                        if not run.try_close_input():
-                            continue
-                    break
-        except _AgentLoopLimitReached as error:
-            response = run._limit_response(error.reason)
+                break
         except AgentCancelledError:
             run._append_interrupted_tool_results()
             response = run._interrupted_response()
@@ -1128,6 +960,6 @@ async def run_agent(run: AgentRun) -> ChatResponse:
             if budget.input_tokens > budget.context_window - run.compaction_settings.reserve_tokens:
                 await run.compact_context(reason="threshold")
         return result
-    except BaseException as error:
-        run._persist_errored_turn(error)
+    except (AgentCancelledError, asyncio.CancelledError, KeyboardInterrupt):
+        run._append_interrupted_tool_results()
         raise

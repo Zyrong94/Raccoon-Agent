@@ -203,13 +203,12 @@ class ScheduledTurn:
         if model is None or model == runner.model_ref:
             yield
             return
-        saved_model = runner.provider, runner.request_options, runner.context_window
+        saved_model = runner.provider, runner.reasoning_effort, runner.context_window
         try:
-            from raccoon.application.conversations.model_switching import model_request_options
             from raccoon.integrations.providers.factory import create_provider_for_model
             profile = runner.model_catalog.models[model]
             provider = create_provider_for_model(runner.app_config, profile)
-            runner.set_model(provider, request_options=model_request_options(profile), context_window=profile.context_window)
+            runner.set_model(provider, reasoning_effort=profile.reasoning_effort, context_window=profile.context_window)
             yield
         finally:
-            runner.set_model(saved_model[0], request_options=saved_model[1], context_window=saved_model[2])
+            runner.set_model(saved_model[0], reasoning_effort=saved_model[1], context_window=saved_model[2])

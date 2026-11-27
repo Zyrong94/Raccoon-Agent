@@ -81,7 +81,6 @@ export function ProviderEditor({draft,onChange,busy,editing,dirty,onSave,onCance
         <Field label="模型 ID" hint={existing?'保存后不能修改。':undefined}>{id=><Input id={id} className="h-9" value={model.modelId} placeholder="deepseek-chat" disabled={busy||existing} onChange={event=>updateModel(index,{modelId:event.target.value})}/>}</Field>
         <Field label="模型名称">{id=><Input id={id} className="h-9" value={model.label} placeholder="DeepSeek Chat" disabled={busy} onChange={event=>updateModel(index,{label:event.target.value})}/>}</Field>
         <Field label="上下文窗口（tokens）">{id=><Input id={id} className="h-9" inputMode="numeric" value={model.contextWindow} placeholder="128000" disabled={busy} onChange={event=>updateModel(index,{contextWindow:event.target.value})}/>}</Field>
-        <Field label="最大输出 tokens">{id=><Input id={id} className="h-9" inputMode="numeric" value={model.maxTokens} placeholder="8192" disabled={busy} onChange={event=>updateModel(index,{maxTokens:event.target.value})}/>}</Field>
        </div>
        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1">
         <Check label="文本" checked disabled onChange={()=>{}}/>
@@ -89,7 +88,6 @@ export function ProviderEditor({draft,onChange,busy,editing,dirty,onSave,onCance
         <Check label="PDF" checked={!!model.pdfInput} disabled={busy} onChange={value=>updateModel(index,{pdfInput:value})}/>
        </div>
        <div className="mt-3 grid gap-x-5 gap-y-3 sm:grid-cols-2">
-        <Field label="温度">{id=><Input id={id} className="h-9" value={model.temperature} placeholder="使用默认值" disabled={busy} onChange={event=>updateModel(index,{temperature:event.target.value})}/>}</Field>
         <Field label="支持的推理强度" hint="用逗号分隔；留空表示不支持设置。">{id=><Input id={id} className="h-9" value={model.supportedReasoningEfforts} placeholder="low, medium, high" disabled={busy} onChange={event=>updateModel(index,{supportedReasoningEfforts:event.target.value})}/>}</Field>
         <Field label="默认推理强度">{id=><Select id={id} value={model.reasoningEffort||'__default__'} disabled={busy} options={[{value:'__default__',label:'使用服务默认值'},...model.supportedReasoningEfforts.split(/[,，\s]+/).filter(Boolean).map(value=>({value,label:value}))]} onValueChange={value=>updateModel(index,{reasoningEffort:value==='__default__'?'':value})}/>}</Field>
         <Toggle label="并行工具调用" value={model.parallelToolCalls} onChange={value=>updateModel(index,{parallelToolCalls:value})} disabled={busy}/>

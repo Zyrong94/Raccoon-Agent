@@ -12,7 +12,7 @@ from raccoon.modules.context.context_builder import ContextBuilder, InvalidCompa
 from raccoon.modules.context.summary import SummaryError
 from raccoon.modules.sessions.compaction import CompactionRecord
 from raccoon.modules.sessions.models import AgentMessage, MessagePart, SessionData
-from raccoon.runtime.model_types import ChatResponse, MainRequestOptions, TokenUsage
+from raccoon.runtime.model_types import ChatResponse, TokenUsage
 
 
 def message(identity, role="user", *, kind="text", content="text", **metadata):
@@ -22,7 +22,7 @@ def message(identity, role="user", *, kind="text", content="text", **metadata):
 
 
 def record(boundary):
-    return CompactionRecord("compact", "session", "2026-11-16T00:00:00Z", "earlier summary", boundary, 100)
+    return CompactionRecord("compact", "session", "2026-11-16T00:00:00Z", "earlier summary", boundary, 100, boundary)
 
 
 def transaction():
@@ -89,9 +89,14 @@ def test_incomplete_summary_is_rejected_without_changing_history(content, reason
     view = SessionData("session", messages=[message("old"), message("new")])
     original = deepcopy(view)
     prepared = prepare_compaction(view, CompactionSettings(keep_recent_tokens=1), 100)
-    provider = SimpleNamespace(acomplete=AsyncMock(return_value=ChatResponse("fake", "fake", content, finish_reason=reason)))
+    provider = SimpleNamespace(acomplete=AsyncMock(return_value=ChatResponse(
+        "fake",
+        "fake",
+        finish_reason=reason,
+        parts=[MessagePart(kind="text", content=content)],
+    )))
     with pytest.raises(SummaryError):
-        asyncio.run(generate_compaction(prepared, session_id="session", provider=provider, request_options=MainRequestOptions()))
+        asyncio.run(generate_compaction(prepared, session_id="session", provider=provider, reasoning_effort=None))
     assert view == original
 
 
@@ -109,15 +114,15 @@ def test_compaction_uses_only_the_context_summary_model(tmp_path):
     store.append_user_message(session.data, "Latest question", user_timezone="UTC")
     main = FakeProvider([])
     summary = FakeProvider([response("Earlier conversation summary")])
-    main_options = MainRequestOptions(extra_body={"reasoning_effort": "high"})
+    main_effort = "high"
     settings = CompactionSettings(keep_recent_tokens=1)
 
-    without_summary = AgentRun(session=session, provider=main, request_options=main_options, compaction_settings=settings)
+    without_summary = AgentRun(session=session, provider=main, reasoning_effort=main_effort, compaction_settings=settings)
     with pytest.raises(SummaryError, match="RACCOON_CONTEXT_SUMMARY"):
         asyncio.run(without_summary.compact_context())
 
     run = AgentRun(
-        session=session, provider=main, request_options=main_options,
+        session=session, provider=main, reasoning_effort=main_effort,
         auxiliary_models=AuxiliaryModels(context_summary=summary),
         compaction_settings=settings,
     )
@@ -125,4 +130,4 @@ def test_compaction_uses_only_the_context_summary_model(tmp_path):
 
     assert result.summary == "Earlier conversation summary"
     assert main.requests == []
-    assert "reasoning_effort" not in summary.requests[0].extra_body
+    assert summary.requests[0].reasoning_effort is None

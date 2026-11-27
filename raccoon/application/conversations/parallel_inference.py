@@ -19,7 +19,6 @@ from pathlib import Path
 from contextlib import nullcontext
 from typing import Any
 
-from raccoon.modules.agent.loop_limits import AgentLoopLimits
 from raccoon.modules.agent.runtime_capabilities import AgentRuntimeCapabilities
 from raccoon.modules.agent.session import AgentSession
 from raccoon.app.session_runtime import SessionRuntime
@@ -33,8 +32,7 @@ from raccoon.modules.permissions.manager import PermissionManager
 from raccoon.modules.permissions.policy import DefaultPermissionPolicy
 from raccoon.modules.permissions.types import PermissionMode
 from raccoon.runtime.model_provider import AuxiliaryModels, ChatProvider
-from raccoon.runtime.model_types import MainRequestOptions
-from raccoon.modules.tools.builtin import create_builtin_registry
+from raccoon.modules.tools.builtin import create_builtin_tools
 from raccoon.modules.tools.types import Tool
 from raccoon.modules.permissions.sandbox_access import SandboxAccess, SandboxAccessMode
 
@@ -50,11 +48,6 @@ PARALLEL_TOOL_ALLOWLIST = frozenset({
 
 # Network tools are added only when the parent runner actually exposes them.
 PARALLEL_NETWORK_TOOLS = frozenset({"web_fetch", "web_search", "search_papers"})
-
-# Lightweight read-only questions: keep a small budget so one branch cannot
-# occupy the single per-session side slot for long.
-PARALLEL_LIMITS = AgentLoopLimits(max_tool_rounds=4, max_provider_calls=6, max_turn_seconds=120)
-
 
 def parallel_replies_from_metadata(metadata: Mapping[str, Any]) -> list[dict]:
     branches = metadata.get("parallel_branches")
@@ -76,11 +69,10 @@ class ParallelBranchRunner:
         store: SessionStore,
         project_root: str | Path,
         provider: ChatProvider,
-        request_options: MainRequestOptions | None,
+        reasoning_effort: str | None,
         permission_manager: PermissionManager | None,
         sandbox_access: SandboxAccess | None,
         parent_tool_names: Iterable[str],
-        limits: AgentLoopLimits | None = None,
         user_timezone: str | None = None,
         provider_resolver: Any | None = None,
         auxiliary_models: AuxiliaryModels = AuxiliaryModels(),
@@ -89,7 +81,7 @@ class ParallelBranchRunner:
         self.store = store
         self.project_root = Path(project_root).resolve()
         self.provider = provider
-        self.request_options = request_options or MainRequestOptions()
+        self.reasoning_effort = reasoning_effort
         self.provider_resolver = provider_resolver
         self.auxiliary_models = auxiliary_models
         self.permission_manager = permission_manager or PermissionManager(
@@ -97,7 +89,6 @@ class ParallelBranchRunner:
         )
         self.sandbox_access = sandbox_access or SandboxAccess()
         self.user_timezone = user_timezone
-        self.limits = limits or PARALLEL_LIMITS
         self.network_tools = PARALLEL_NETWORK_TOOLS & {str(name) for name in parent_tool_names}
         self.allowed_tool_names = PARALLEL_TOOL_ALLOWLIST | self.network_tools
         self._children: dict[str, AgentSession] = {}
@@ -126,12 +117,12 @@ class ParallelBranchRunner:
 
         settings = event.input.settings
         try:
-            provider, request_options = self._resolve_config()
+            provider, reasoning_effort = self._resolve_config()
             context_window = None
             permission_scope = nullcontext()
             sandbox_mode = self.sandbox_access.mode
             if settings is not None:
-                provider, request_options, context_window = turn.binding.context.model_for_turn(settings.model_ref)
+                provider, reasoning_effort, context_window = turn.binding.context.model_for_turn(settings.model_ref)
                 mode = PermissionMode(settings.permission_mode)
                 permission_scope = self.permission_manager.use_mode(mode)
                 sandbox_mode = SandboxAccessMode.UNRESTRICTED if mode == PermissionMode.BYPASS else SandboxAccessMode.PROJECT
@@ -156,7 +147,7 @@ class ParallelBranchRunner:
             answer=None,
             error=None,
         )
-        runner = self._runner(child, provider, request_options)
+        runner = self._runner(child, provider, reasoning_effort)
         if settings is not None:
             runner.model_ref = settings.model_ref
             runner.context_window = context_window
@@ -260,7 +251,7 @@ class ParallelBranchRunner:
         self._write_branches(branches)
 
     def _build_tools(self, access: SandboxAccess) -> list[Tool]:
-        registry = create_builtin_registry(
+        tools = create_builtin_tools(
             self.project_root,
             include_mutation_tools=False,
             include_execution_tools=False,
@@ -268,7 +259,7 @@ class ParallelBranchRunner:
             access=access,
             include_ask_user=False,
         )
-        return [replace(tool, exposure="direct") for tool in registry.tools() if tool.name in self.allowed_tool_names]
+        return [replace(tool, exposure="direct") for tool in tools if tool.name in self.allowed_tool_names]
 
     def _create_child(self, event, question: str, access: SandboxAccess) -> AgentSession:
         tools = self._build_tools(access)
@@ -294,7 +285,7 @@ class ParallelBranchRunner:
         return child
 
     def _runner(self, child: AgentSession, provider: ChatProvider,
-                request_options: MainRequestOptions) -> SessionRuntime:
+                reasoning_effort: str | None) -> SessionRuntime:
         capabilities = AgentRuntimeCapabilities(
             allow_user_input=False,
             enable_delegate_tool=False,
@@ -309,13 +300,12 @@ class ParallelBranchRunner:
             auxiliary_models=self.auxiliary_models,
             provider=provider,
             tools=list(child.tool_registry.tools()),
-            request_options=request_options,
-            limits=self.limits,
+            reasoning_effort=reasoning_effort,
             runtime_capabilities=capabilities,
         )
 
-    def _resolve_config(self) -> tuple[ChatProvider, MainRequestOptions]:
-        """Freeze the model and request options that are current when a branch starts.
+    def _resolve_config(self) -> tuple[ChatProvider, str | None]:
+        """Freeze the model and reasoning effort that are current when a branch starts.
 
         The host may switch models between branches; a branch that is already
         running keeps the provider it started with.
@@ -327,5 +317,5 @@ class ParallelBranchRunner:
             except Exception:
                 resolved = None
             if isinstance(resolved, tuple) and len(resolved) == 2 and resolved[0] is not None:
-                return resolved[0], resolved[1] or self.request_options
-        return self.provider, self.request_options
+                return resolved[0], resolved[1]
+        return self.provider, self.reasoning_effort

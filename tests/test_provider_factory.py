@@ -4,7 +4,7 @@ from dataclasses import replace
 import pytest
 
 from raccoon.config import AppConfig
-from raccoon.config.models import ModelProfile, ModelRequestOptions, ProviderProfile
+from raccoon.config.models import ModelProfile, ProviderProfile
 from raccoon.integrations.providers.factory import ProviderConfigError, create_provider_for_model
 from raccoon.integrations.providers.openai_responses import RESPONSES_CAPABILITIES
 
@@ -14,7 +14,6 @@ def model_profile():
     return ModelProfile(
         ref="test/model", provider_id="test", model_id="model", label="Test",
         provider=ProviderProfile(id="test", base_url="https://example.test/v1", api_key_env="TEST_API_KEY"),
-        request=ModelRequestOptions(),
     )
 
 

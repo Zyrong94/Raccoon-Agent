@@ -121,4 +121,5 @@ def create_delegate_tool(parent) -> Tool:
             ),
         ),
         executor=delegate,
+        supports_background=True,
     )

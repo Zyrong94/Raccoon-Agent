@@ -1,13 +1,15 @@
 """组装依赖当前会话与运行服务的工具；主循环不维护工具名称名单。"""
 from __future__ import annotations
 
-from raccoon.modules.tools.background import create_background_cancel_tool, create_background_status_tool, create_wait_for_tasks_tool
+from raccoon.modules.tools.background import create_wait_for_tasks_tool
 from raccoon.modules.tools.delegate import create_delegate_tool
 from raccoon.modules.tools.search.discovery import create_tool_search
 
 
 def register_runtime_tools(loop) -> None:
-    _ensure_background_control_tools(loop)
+    if loop.background_manager is not None and loop.session.allow_background_execution:
+        loop.session.tool_registry.unregister("wait_for_tasks")
+        loop.session.tool_registry.register(create_wait_for_tasks_tool(loop._wait_for_tasks))
     _ensure_delegate_tool(loop)
     registry = loop.session.tool_registry
     def loaded_for_search():
@@ -24,20 +26,6 @@ def register_runtime_tools(loop) -> None:
         loop.session.queue_tool_definitions,
         catalog_status=loop.tool_catalog_status,
     ))
-
-
-def _ensure_background_control_tools(loop) -> None:
-    """Register background_status/background_cancel whenever background runtime exists."""
-
-    if loop.background_manager is None or not loop.session.allow_background_execution:
-        return
-    names = set(loop.session.tool_registry.names())
-    if "background_status" not in names:
-        loop.session.tool_registry.register(create_background_status_tool(loop.background_manager, session_id=loop.session.session_id))
-    if "background_cancel" not in names:
-        loop.session.tool_registry.register(create_background_cancel_tool(loop.background_manager, session_id=loop.session.session_id))
-    loop.session.tool_registry.unregister("wait_for_tasks")
-    loop.session.tool_registry.register(create_wait_for_tasks_tool(loop._wait_for_tasks))
 
 
 def _ensure_delegate_tool(loop) -> None:

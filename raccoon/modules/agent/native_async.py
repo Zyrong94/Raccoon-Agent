@@ -33,7 +33,7 @@ def native_completion_answered(session: AgentSession, message: CompletionInput) 
 
 
 def consume_native_result(session: AgentSession, message: CompletionInput,
-                          manager: BackgroundJobManager | None, *, observe, emit) -> str:
+                          manager: BackgroundJobManager | None, *, emit=None) -> str:
     view = session.data
     matches = [part for item in view.messages for part in item.parts
                if part.kind == "tool_call" and part.metadata.get("tool_call_id") == message.tool_call_id]
@@ -57,16 +57,15 @@ def consume_native_result(session: AgentSession, message: CompletionInput,
     if result.name != message.tool_name:
         raise ValueError("native completion tool name does not match original call")
     call = ToolCall(message.tool_call_id, message.tool_name, matches[0].metadata.get("arguments", {}), async_execution=True)
-    observe(call, result)
     message_id = session.settle_tool_result(tool_call=call, result=result,
                                             source_event_id=message.event_id, background_run_id=message.run_id,
                                             background_job_id=message.job_id, background_status=message.status)
-    emit("finished", call, result=result)
+    if emit is not None:
+        emit("finished", call, result=result)
     return message_id
 
 
 def record_native_completion(session: AgentSession, message: CompletionInput,
                              manager: BackgroundJobManager | None) -> str:
     """把迟到结果写回原始调用，不触发模型回答（用于已取消的作业）。"""
-    return consume_native_result(session, message, manager, observe=lambda *args, **kwargs: None,
-                                 emit=lambda *args, **kwargs: None)
+    return consume_native_result(session, message, manager)

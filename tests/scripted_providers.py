@@ -1,6 +1,7 @@
 """Scripted model providers shared by offline tests."""
 
 import asyncio
+from raccoon.runtime.model_types import MessagePart
 from dataclasses import dataclass, field
 import threading
 
@@ -9,8 +10,12 @@ from raccoon.runtime.model_types import ChatResponse, ProviderCapabilities
 
 
 def response(text="done", *, calls=None):
-    return ChatResponse(provider="fake", model="fake", content=text, tool_calls=calls or [],
-                        finish_reason="tool_calls" if calls else "stop")
+    return ChatResponse(
+        provider="fake",
+        model="fake",
+        finish_reason="tool_calls" if calls else "stop",
+        parts=[MessagePart(kind="text", content=text)] + [MessagePart.from_tool_call(call) for call in (calls or [])],
+    )
 
 
 @dataclass

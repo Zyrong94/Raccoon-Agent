@@ -32,16 +32,20 @@ async def test_managed_subagent(workbench, identifier, prompt):
     runner = runtime
     config = load_subagent_config(identifier, data_root=runtime.catalog.root)
     validate_subagent_references(runtime.project_path, config, runtime)
-    options = runner.request_options.as_chat_request_kwargs()
-    options["max_tokens"] = min(options.get("max_tokens") or 512, 512)
     request = ChatRequest(
         messages=[
-            ChatMessage(role="system", content=config.system_prompt),
-            ChatMessage(role="user", content=prompt.strip() or "Reply with OK."),
+            ChatMessage(
+                role="system",
+                text=config.system_prompt,
+            ),
+            ChatMessage(
+                role="user",
+                text=prompt.strip() or "Reply with OK.",
+            ),
         ],
-        tools=[], tool_choice="none", **options,
+        tools=[], tool_choice="none", reasoning_effort=runner.reasoning_effort,
     )
-    response = await asyncio.wait_for(runner.provider.acomplete(request), timeout=min(config.max_turn_seconds, 20))
+    response = await asyncio.wait_for(runner.provider.acomplete(request), timeout=20)
     if response.finish_reason not in {None, "stop", "length", "tool_calls"}:
         return {"ok": False, "message": "提示词试运行未完成；模型返回失败、中断或内容限制。未执行工具。", "output": ""}
     if response.tool_calls:

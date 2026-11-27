@@ -39,4 +39,4 @@ def create_ls_tool(root: str | Path, *, access: SandboxAccess | None = None) -> 
         content = "\n".join(lines) if lines else "目录为空。"
         return make_text_result("ls", content, entries=entries, truncated=len(entries) >= max_entries)
 
-    return with_read_permission(tool_from_function(ls, exposure="deferred"), reason="列出目录需要权限检查。")
+    return with_read_permission(tool_from_function(ls, exposure="deferred", supports_background=True), reason="列出目录需要权限检查。")

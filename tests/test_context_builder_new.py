@@ -87,7 +87,10 @@ def test_context_builder_projects_internal_messages_to_provider_messages() -> No
 
     messages = ContextBuilder().build_provider_messages(
         view,
-        system_prefix=[ChatMessage(role="system", content="你是 Raccoon。")],
+        system_prefix=[ChatMessage(
+            role="system",
+            text="你是 Raccoon。",
+        )],
     )
 
     assert [message.role for message in messages] == [
@@ -179,6 +182,7 @@ def test_projected_tool_result_part_ids_only_include_effective_compaction_tail()
                 first_kept_message_id=tail_call.id,
                 created_at="2026-11-16T00:00:00Z",
                 tokens_before=100,
+                reasoning_cutoff_message_id=tail_result.id,
             )
         ],
     )

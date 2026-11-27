@@ -54,6 +54,7 @@ def tool_from_function(
     name: str | None = None,
     description: str | None = None,
     exposure: Literal["direct", "deferred"] = "direct",
+    supports_background: bool = False,
 ) -> "Tool":
     """根据函数自动创建模型可调用工具。"""
 
@@ -70,6 +71,7 @@ def tool_from_function(
         ),
         executor=func,
         exposure=exposure,
+        supports_background=supports_background,
     )
 
 

@@ -3,6 +3,7 @@ import asyncio
 
 import pytest
 
+from raccoon.runtime.model_types import MessagePart
 from raccoon.app.conversations import ConversationService
 from raccoon.app.session_runtime import SessionRuntime
 from raccoon.bootstrap.agent_session import prepare_session
@@ -20,7 +21,12 @@ class OfflineProvider(ChatProvider):
     name = 'offline'
     model = 'scripted'
     async def acomplete(self, request):
-        return ChatResponse(provider=self.name, model=self.model, content='finished', finish_reason='stop')
+        return ChatResponse(
+            provider=self.name,
+            model=self.model,
+            finish_reason='stop',
+            parts=[MessagePart(kind="text", content='finished')],
+        )
 
 
 def parent_runtime(tmp_path, identity='parent'):
@@ -92,7 +98,7 @@ def test_cancel_parent_clears_running_and_queued_subagent_messages(tmp_path):
         try:
             result = await spawn_subagent(parent, SubagentRequest("reviewer", "Review"))
             assert result.ok
-            parent.set_model(slow, request_options=parent.request_options, context_window=parent.context_window)
+            parent.set_model(slow, reasoning_effort=parent.reasoning_effort, context_window=parent.context_window)
             child_id = result.subagent_session_id
             await send_subagent(parent, child_id, "First", mode="follow_up", event_id="first")
             assert await asyncio.to_thread(slow.entered.wait, 5)

@@ -18,7 +18,7 @@ def test_namespaces_and_file_overrides_are_independent(tmp_path):
     (agent_dir / 'config.yaml').write_text('name: reviewer\ntools: [write]\n', encoding='utf-8')
     sub = load_subagent_config('reviewer', data_root=tmp_path)
     assert sub.tools == () and sub.skills == ()
-    assert sub.max_tool_rounds == 2
+    assert not hasattr(sub, "max_tool_rounds")
     assert sub.system_prompt == 'SPECIALIST SOUL'
     (directory / 'SOUL.md').unlink()
     with pytest.raises(SubagentConfigError):
@@ -32,11 +32,10 @@ def test_bundled_roles_load_from_files_without_project_configuration(tmp_path):
     assert all(config.system_prompt for config in configs.values())
     assert configs['coder'].allow_background and configs['coder'].requires_worktree
     assert 'write' not in configs['reviewer'].tools
-    assert configs['reviewer'].max_tool_rounds < configs['tester'].max_tool_rounds
 
 
 @pytest.mark.parametrize('settings', [
-    '- item', 'description: []', 'model: 123', 'tools: view', 'skills: [3]', 'max_tool_rounds: true', 'max_tool_rounds: 0', 'max_provider_calls: -1', 'max_turn_seconds: .nan', 'max_turn_seconds: .inf',
+    '- item', 'description: []', 'model: 123', 'tools: view', 'skills: [3]',
     'allow_background: yesplease', 'requires_worktree: 1', 'allowed_subagents: []',
     'mode: subagent', 'name: another', 'tools: [delegate]', 'model: other/model', '123: value',
 ])
@@ -72,7 +71,6 @@ def test_restored_subagent_uses_the_saved_role_and_tool_boundary(tmp_path):
     restored = load_subagent_session(parent, child.session_id)
 
     assert restored.subagent_config.system_prompt == "SPECIALIST SOUL"
-    assert restored.subagent_config.max_tool_rounds == 3
     assert restored.allowed_tool_names == {"view"}
     assert restored.skill_catalog.skills == []
     assert not restored.permission_manager.allow_user_approval

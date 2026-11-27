@@ -13,6 +13,3 @@ tools:
 skills: null
 allow_background: true
 requires_worktree: false
-max_tool_rounds: 10
-max_provider_calls: 20
-max_turn_seconds: 300

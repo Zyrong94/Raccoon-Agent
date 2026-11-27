@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import Protocol
 
-from raccoon.application.conversations.model_switching import create_auxiliary_models, model_request_options
+from raccoon.application.conversations.model_switching import create_auxiliary_models
 from raccoon.runtime.processes import ProcessManager
 from raccoon.modules.agent.runtime_capabilities import AgentRuntimeCapabilities
 from raccoon.modules.memory.config import load_memory_config
@@ -25,7 +25,7 @@ from raccoon.runtime.model_provider import ChatProvider
 from raccoon.integrations.providers.factory import ProviderConfigError, create_provider_for_model
 from raccoon.bootstrap.agent_session import new_session, open_session
 from raccoon.modules.sessions.catalog import SessionCatalog
-from raccoon.modules.tools.builtin import create_builtin_registry
+from raccoon.modules.tools.builtin import create_builtin_tools
 from raccoon.modules.agent.background import BackgroundJobManager
 from raccoon.modules.tools.types import Tool
 from raccoon.modules.permissions.sandbox_access import SandboxAccess
@@ -152,7 +152,7 @@ def create_runtime(
     resolved_tools = (   #造内置工具：read、write、edit、shell、grep、glob
         tools
         if tools is not None
-        else create_builtin_registry(
+        else create_builtin_tools(
             project_path,
             include_mutation_tools=True,
             include_execution_tools=True,
@@ -164,7 +164,7 @@ def create_runtime(
             process_manager=(
                 process_manager if resolved_capabilities.enable_process_tools else None
             ),
-        ).tools()
+        )
     )
     mcp_manager = (mcp_manager_factory or McpManager)(load_mcp_configs(resolved_app_config))
     try:
@@ -183,6 +183,7 @@ def create_runtime(
         session_options = {
             "store": store, "project_root": project_path, "data_root": resolved_data_root,
             "tools": current_tools, "sandbox_access": sandbox_access, "user_timezone": user_timezone,
+            "background_manager": background_manager,
         }
         if resume_session and session_id is not None:
             session = open_session(session_id=session_id, **session_options)
@@ -199,9 +200,8 @@ def create_runtime(
             tools_provider=tool_provider,
             tool_catalog_status=tool_provider.status_text,
             compaction_settings=compaction_settings,
-            limits=None,
             memory_service=memory_service,
-            request_options=model_request_options(selected_profile),
+            reasoning_effort=selected_profile.reasoning_effort if selected_profile is not None else None,
             auxiliary_models=auxiliary_models,
             routing_timeout_seconds=routing_timeout_seconds,
             context_window=selected_profile.context_window if selected_profile is not None else None,
@@ -218,9 +218,7 @@ def create_runtime(
         if saved_effort is not None and selected_profile is not None:
             if saved_effort not in selected_profile.supported_reasoning_efforts:
                 raise ModelCatalogError("会话的推理强度已不受当前模型支持，请重新选择")
-            extra_body = dict(context.request_options.extra_body)
-            extra_body["reasoning_effort"] = saved_effort
-            context.request_options = replace(context.request_options, extra_body=extra_body)
+            context.reasoning_effort = saved_effort
         context.execution_root = resolved_data_root
         def mcp_status():
             """只读快照：MCP 运行状态与已发现工具，供配置页展示。"""

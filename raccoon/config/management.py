@@ -17,7 +17,7 @@ import yaml
 
 from raccoon.config.model_store import ModelConfigStore
 from raccoon.config.settings import default_global_config_path
-from raccoon.config.subagents_config import load_subagent_config
+from raccoon.config.subagents_config import load_subagent_config, remove_obsolete_loop_limits
 
 DOMAINS = ("models", "mcp", "skills", "subagents")
 MASK = "••••••"
@@ -112,7 +112,11 @@ class ManagedConfigStore:
         if domain == "models":
             return self.models.records()
         self._domain(domain)
-        return list(deepcopy(self._read()[domain]).values())
+        records = list(self._read()[domain].values())
+        if domain == "subagents":
+            for record in records:
+                remove_obsolete_loop_limits(record["config"])
+        return records
 
     def sources(self):
         return deepcopy(self._read().get("_sources", []))
@@ -200,6 +204,8 @@ class ManagedConfigStore:
         if domain == "mcp":
             raise ValueError("MCP 配置由 raccoon.toml 或全局 config.toml 管理，个人库不再保存 MCP")
         config = deepcopy(config)
+        if domain == "subagents":
+            remove_obsolete_loop_limits(config)
         if any(str(key).startswith("_") for key in config):
             raise ValueError("配置不能指定内部字段")
         _safe(self.root)

@@ -52,7 +52,7 @@ def create_git_log_tool(root: str | Path, *, access: SandboxAccess | None = None
             max_entries=max_entries,
         )
 
-    tool = tool_from_function(git_log, exposure="deferred")
+    tool = tool_from_function(git_log, exposure="deferred", supports_background=True)
     tool.permission = ToolPermissionSpec(
         action=PermissionAction.GIT_OPERATION,
         target_value="log",

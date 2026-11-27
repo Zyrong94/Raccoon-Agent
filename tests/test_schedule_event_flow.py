@@ -1,6 +1,7 @@
 """Timers enqueue ordinary instructions; only execution status belongs to scheduling."""
 import asyncio
 import json
+from raccoon.runtime.model_types import MessagePart
 from types import SimpleNamespace
 
 import pytest
@@ -84,7 +85,12 @@ def test_scheduled_turn_uses_exact_prompt_and_records_only_status(tmp_path):
             runtime.input_event_handler(question, "yes")
             assert store.get_run(run["id"])["status"] == "running"
             assert session.scheduled_run_id == run['id']
-            return ChatResponse(provider='fake', model='fake', content='ordinary chat output', finish_reason='stop')
+            return ChatResponse(
+                provider='fake',
+                model='fake',
+                finish_reason='stop',
+                parts=[MessagePart(kind="text", content='ordinary chat output')],
+            )
         runtime.run_turn = execute
         turn = SimpleNamespace(initial_event=event, try_close_input=lambda: True)
         result = asyncio.run(executor.execute(turn, runtime, lambda: ()))
@@ -101,18 +107,17 @@ def test_scheduled_turn_uses_exact_prompt_and_records_only_status(tmp_path):
 
 
 def test_model_override_is_restored_when_execution_fails(monkeypatch):
-    runtime = SimpleNamespace(provider='original', request_options='original-options', context_window=100,
+    runtime = SimpleNamespace(provider='original', reasoning_effort='original-options', context_window=100,
                               model_ref='original', model_catalog=SimpleNamespace(models={'override': 'profile'}))
-    def set_model(provider, *, request_options, context_window):
-        runtime.provider, runtime.request_options, runtime.context_window = provider, request_options, context_window
+    def set_model(provider, *, reasoning_effort, context_window):
+        runtime.provider, runtime.reasoning_effort, runtime.context_window = provider, reasoning_effort, context_window
     runtime.app_config = object()
     monkeypatch.setattr('raccoon.integrations.providers.factory.create_provider_for_model', lambda *_: 'override')
-    monkeypatch.setattr('raccoon.application.conversations.model_switching.model_request_options', lambda _: 'options')
     runtime.set_model = set_model
-    runtime.model_catalog.models['override'] = SimpleNamespace(context_window=200)
+    runtime.model_catalog.models['override'] = SimpleNamespace(context_window=200, reasoning_effort="high")
     executor = ScheduledTurn.__new__(ScheduledTurn)
     with pytest.raises(RuntimeError):
         with executor._settings({'model':'override'}, runtime):
             assert runtime.provider == 'override'
             raise RuntimeError('failed')
-    assert (runtime.provider, runtime.request_options, runtime.context_window) == ('original','original-options',100)
+    assert (runtime.provider, runtime.reasoning_effort, runtime.context_window) == ('original','original-options',100)

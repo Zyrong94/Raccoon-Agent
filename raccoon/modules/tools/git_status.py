@@ -35,7 +35,7 @@ def create_git_status_tool(root: str | Path, *, access: SandboxAccess | None = N
             clean=status_result.stdout.strip() == "",
         )
 
-    tool = tool_from_function(git_status, exposure="deferred")
+    tool = tool_from_function(git_status, exposure="deferred", supports_background=True)
     tool.permission = ToolPermissionSpec(
         action=PermissionAction.GIT_OPERATION,
         target_value="status --short",

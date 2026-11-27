@@ -3,6 +3,7 @@
 import time
 
 import pytest
+from raccoon.runtime.model_types import MessagePart
 from fastapi.testclient import TestClient
 
 from raccoon.bootstrap.runtime import create_runtime
@@ -30,8 +31,11 @@ class WebProvider(ChatProvider):
 
 
 def response(content="完成", calls=None):
-    return ChatResponse(provider="fake", model="web-model", content=content, tool_calls=calls or [],
-                        provider_state={"encrypted_content": "DO_NOT_EXPOSE"}, raw={"key": "DO_NOT_EXPOSE"})
+    return ChatResponse(
+        provider="fake",
+        model="web-model",
+        parts=[MessagePart(kind="reasoning", metadata={"reasoning_item": {"encrypted_content": "DO_NOT_EXPOSE"}}), MessagePart(kind="text", content=content)] + [MessagePart.from_tool_call(call) for call in (calls or [])],
+    )
 
 
 def wait_idle(client, *, allow_pending=False, scope=None):

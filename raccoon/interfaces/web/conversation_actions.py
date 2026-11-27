@@ -73,13 +73,13 @@ def create_parallel_runner(display):
         store=session.store,
         project_root=project_root,
         provider=display.runtime.provider,
-        request_options=display.runtime.request_options,
+        reasoning_effort=display.runtime.reasoning_effort,
         permission_manager=permission_manager,
         sandbox_access=getattr(session, 'sandbox_access', None),
         parent_tool_names=tool_names,
         user_timezone=getattr(session, 'user_timezone', None),
         auxiliary_models=display.runtime.auxiliary_models,
-        provider_resolver=lambda: (display.runtime.provider, display.runtime.request_options),
+        provider_resolver=lambda: (display.runtime.provider, display.runtime.reasoning_effort),
     )
 
 def require_idle(display):
@@ -168,9 +168,8 @@ def set_model(display, model):
     display.runtime.switch_model(model)
     # Switching a model changes capability and effort, not the conversation history.
     capabilities = getattr(display.runtime.provider, "capabilities", None)
-    extra = display.runtime.request_options.extra_body
     event = {'kind': 'model', 'model': display.runtime.model_ref,
-             'effort': extra.get("reasoning_effort") or extra.get("reasoning", {}).get("effort"),
+             'effort': display.runtime.reasoning_effort,
              'input_capabilities': {'images': bool(getattr(capabilities, 'supports_vision', False)),
                                     'pdf': bool(getattr(capabilities, 'supports_pdf_input', False))},
              'project_id': display._workspace_id(display.runtime.project_path),

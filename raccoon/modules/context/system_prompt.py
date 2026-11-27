@@ -75,7 +75,10 @@ class SystemPromptBuilder:
             ]
             if section
         )
-        message = ChatMessage(role="system", content=content)
+        message = ChatMessage(
+            role="system",
+            text=content,
+        )
         return PromptPrefixCacheEntry(
             fingerprint=fingerprint,
             messages=[message],

@@ -63,7 +63,7 @@ def create_grep_tool(root: str | Path, *, access: SandboxAccess | None = None) -
             max_results=max_results,
         )
 
-    return with_read_permission(tool_from_function(grep), reason="搜索文件内容需要权限检查。")
+    return with_read_permission(tool_from_function(grep, supports_background=True), reason="搜索文件内容需要权限检查。")
 
 
 def _grep_with_rg(

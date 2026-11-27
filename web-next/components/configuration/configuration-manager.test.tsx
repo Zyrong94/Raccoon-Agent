@@ -68,6 +68,8 @@ it('edits a provider connection and saves its models with the original revision'
  await user.click(screen.getByRole('button',{name:'编辑'}));
  expect((screen.getByLabelText('提供商标识') as HTMLInputElement).disabled).toBe(true);
  expect(screen.queryByLabelText('API 密钥')).toBeNull();
+ expect(screen.queryByLabelText('温度')).toBeNull();
+ expect(screen.queryByLabelText('最大输出 tokens')).toBeNull();
  await user.type(screen.getByLabelText('显示名称'),' 二号');
  await user.click(screen.getByRole('button',{name:'保存并应用'}));
  await waitFor(()=>expect(request).toHaveBeenCalledWith('/models/save',{id:model.id,revision:'r1',config:{...model.config,provider_label:'本地供应商 二号'}},undefined));

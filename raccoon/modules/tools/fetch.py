@@ -73,7 +73,7 @@ def create_web_fetch_tool() -> Tool:
         content, truncated = truncate(text, max_chars, suffix="\n\n[响应已截断]")
         return make_text_result("web_fetch", prefix + content, truncated=truncated, **data)
 
-    tool = tool_from_function(web_fetch)
+    tool = tool_from_function(web_fetch, supports_background=True)
     tool.permission = ToolPermissionSpec(
         action=PermissionAction.NETWORK_REQUEST,
         target_arg="url",

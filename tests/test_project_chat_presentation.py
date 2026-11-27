@@ -24,11 +24,11 @@ def presentation(tmp_path, monkeypatch):
     session = NS(session_id='session', mode='ask', store=NS(sessions_dir=tmp_path), data=View(metadata={}))
 
     runner = NS(provider=NS(capabilities=NS(supports_vision=True, supports_pdf_input=False)),
-                request_options=NS(extra_body={'reasoning': {'effort': 'high'}}),
+                reasoning_effort='high',
                 background_manager=None)
     runtime = NS(session=session, chat_runner=runner, model_ref='fake',
                  model_catalog=NS(models={'fake': NS(ref='fake', label='Fake',
-                                                  request=NS(reasoning_effort='high'),
+                                                  reasoning_effort='high',
                                                   supported_reasoning_efforts=('high',), vision=True, pdf_input=False)}))
 
     def artifacts(runtime_arg, session_arg):

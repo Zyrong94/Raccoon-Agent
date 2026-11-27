@@ -68,7 +68,7 @@ def create_diagnostics_tool(root: str | Path, *, access: SandboxAccess | None = 
             success_fallback="诊断通过。",
         )
 
-    tool = tool_from_function(diagnostics, exposure="deferred")
+    tool = tool_from_function(diagnostics, exposure="deferred", supports_background=True)
     tool.definition.parameters["properties"]["env"] = {
         "type": "object",
         "additionalProperties": {"type": "string"},

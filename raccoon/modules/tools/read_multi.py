@@ -95,7 +95,7 @@ def create_read_multi_tool(root: str | Path, *, access: SandboxAccess | None = N
         )
 
     return with_read_permission(
-        tool_from_function(read_multi, exposure="deferred"),
+        tool_from_function(read_multi, exposure="deferred", supports_background=True),
         reason="批量读取文件需要权限检查。",
         target_builder=read_multi_target,
     )

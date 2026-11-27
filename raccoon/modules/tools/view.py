@@ -70,7 +70,7 @@ def create_view_tool(root: str | Path, *, access: SandboxAccess | None = None) -
             next_start_line=next_start,
         )
 
-    tool = tool_from_function(view)
+    tool = tool_from_function(view, supports_background=True)
     for name in ("start_line", "end_line"):
         tool.definition.parameters["properties"][name] = {"type": "integer"}
     return with_read_permission(tool, reason="读取文件需要权限检查。")

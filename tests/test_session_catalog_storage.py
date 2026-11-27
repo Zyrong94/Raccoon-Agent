@@ -1,3 +1,4 @@
+from raccoon.runtime.model_types import MessagePart
 from raccoon.modules.sessions.catalog import SessionCatalog
 from raccoon.modules.sessions.store import SessionStore
 
@@ -45,7 +46,10 @@ def test_reopened_log_preserves_tool_call_and_result(tmp_path):
     store.append_user_message(data, "Check this", user_timezone="UTC")
     call = ToolCall(id="call_1", name="example", arguments={})
     store.append_assistant_response(data, ChatResponse(
-        provider="fake", model="test", content="", tool_calls=[call], finish_reason="tool_calls",
+        provider="fake",
+        model="test",
+        finish_reason="tool_calls",
+        parts=[MessagePart.from_tool_call(call) for call in ([call])],
     ))
     store.append_tool_result(data, tool_call=call, result=ToolResult(name=call.name, ok=True, content="checked"))
 

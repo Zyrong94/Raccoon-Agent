@@ -8,7 +8,7 @@ export const configurationLabels:Record<ConfigurationDomain,string>={models:'模
 export function configurationKey(item:ConfigurationRecord){return item.scope?`${item.scope}:${item.id}`:item.id;}
 export function configurationName(item:ConfigurationRecord){return String(item.config.label||item.config.name||item.config.model_id||item.id);}
 export function configurationDraft(domain:ConfigurationDomain,item?:ConfigurationRecord):ConfigurationDraft{
- const defaults:Record<ConfigurationDomain,ResourceConfig>={models:{provider_id:'',model_id:'',label:'',default:false},mcp:{name:'',type:'local',command:[],enabled:true,timeout_ms:5000},skills:{name:'',description:''},subagents:{name:'',description:'',max_tool_rounds:20,max_provider_calls:40,max_turn_seconds:600,allow_background:false,requires_worktree:false}};
+ const defaults:Record<ConfigurationDomain,ResourceConfig>={models:{provider_id:'',model_id:'',label:'',default:false},mcp:{name:'',type:'local',command:[],enabled:true,timeout_ms:5000},skills:{name:'',description:''},subagents:{name:'',description:'',allow_background:false,requires_worktree:false}};
  const config=structuredClone(item?.config||defaults[domain]);
  if(domain==='mcp'&&item)config.name=item.id;
  return {config,...(domain==='skills'?{scope:item?.scope==='project'?'project' as const:'global' as const}:{}),content:item?.content||(domain==='skills'?'# 使用说明\n\n描述此技能的适用场景、工作流程与交付要求。\n':domain==='subagents'?'请描述此子代理的职责、工作流程与交付要求。':'')};
@@ -21,7 +21,7 @@ export function configurationPayload(draft:ConfigurationDraft,original:Configura
  return {...(original?{id:original.id,revision:original.revision}:{}),...configurationBody(draft)};
 }
 export type ProviderGroup={id:string;name:string;baseUrl:string;apiKeyEnv:string;models:ConfigurationRecord[]};
-export type ModelDraft={record:ConfigurationRecord|null;modelId:string;label:string;contextWindow:string;maxTokens:string;temperature:string;reasoningEffort:string;supportedReasoningEfforts:string;parallelToolCalls:boolean|null;vision:boolean|null;pdfInput:boolean|null;isDefault:boolean};
+export type ModelDraft={record:ConfigurationRecord|null;modelId:string;label:string;contextWindow:string;reasoningEffort:string;supportedReasoningEfforts:string;parallelToolCalls:boolean|null;vision:boolean|null;pdfInput:boolean|null;isDefault:boolean};
 export type ProviderDraft={id:string;name:string;baseUrl:string;apiKeyEnv:string;models:ModelDraft[]};
 // A provider is the connection record shared by its models; the listing only exposes one record per model.
 export function groupProviders(records:ConfigurationRecord[]):ProviderGroup[]{
@@ -39,8 +39,8 @@ export function groupProviders(records:ConfigurationRecord[]):ProviderGroup[]{
  return [...groups.values()].sort((left,right)=>left.name.localeCompare(right.name));
 }
 export function modelDraft(record?:ConfigurationRecord):ModelDraft{
- const config=record?.config||{},request=(config.request||{}) as Record<string,unknown>,text=(value:unknown)=>value==null?'':String(value);
- return {record:record||null,modelId:text(config.model_id),label:text(config.label),contextWindow:text(config.context_window),maxTokens:text(request.max_tokens),temperature:text(request.temperature),reasoningEffort:text(request.reasoning_effort),supportedReasoningEfforts:(config.supported_reasoning_efforts as string[]||[]).join(', '),parallelToolCalls:config.parallel_tool_calls===undefined?null:!!config.parallel_tool_calls,vision:config.vision===undefined?null:!!config.vision,pdfInput:config.pdf_input===undefined?null:!!config.pdf_input,isDefault:!!config.default};
+ const config=record?.config||{},text=(value:unknown)=>value==null?'':String(value);
+ return {record:record||null,modelId:text(config.model_id),label:text(config.label),contextWindow:text(config.context_window),reasoningEffort:text(config.reasoning_effort),supportedReasoningEfforts:(config.supported_reasoning_efforts as string[]||[]).join(', '),parallelToolCalls:config.parallel_tool_calls===undefined?null:!!config.parallel_tool_calls,vision:config.vision===undefined?null:!!config.vision,pdfInput:config.pdf_input===undefined?null:!!config.pdf_input,isDefault:!!config.default};
 }
 export function providerDraft(group?:ProviderGroup):ProviderDraft{
  return {id:group?.id||'',name:group?.name||'',baseUrl:group?.baseUrl||'',apiKeyEnv:group?.apiKeyEnv||'',models:group?group.models.map(record=>modelDraft(record)):[{...modelDraft(),isDefault:true}]};
@@ -48,12 +48,8 @@ export function providerDraft(group?:ProviderGroup):ProviderDraft{
 export function providerSnapshot(draft:ProviderDraft){return JSON.stringify({...draft});}
 function size(value:string){const parsed=Number(value);return value.trim()&&Number.isFinite(parsed)&&parsed>0?parsed:null;}
 export function providerModelConfig(draft:ProviderDraft,model:ModelDraft):ResourceConfig{
- const request:Record<string,unknown>={};
- if(model.temperature.trim()&&Number.isFinite(Number(model.temperature)))request.temperature=Number(model.temperature);
- if(size(model.maxTokens)!==null)request.max_tokens=Number(model.maxTokens);
- if(model.reasoningEffort.trim())request.reasoning_effort=model.reasoningEffort.trim();
  const config:Record<string,unknown>={provider_id:draft.id.trim(),model_id:model.modelId.trim(),provider_label:draft.name.trim(),label:model.label.trim(),base_url:draft.baseUrl.trim(),api_key_env:draft.apiKeyEnv.trim(),parallel_tool_calls:model.parallelToolCalls,context_window:size(model.contextWindow),vision:model.vision,pdf_input:model.pdfInput,default:model.isDefault,supported_reasoning_efforts:model.supportedReasoningEfforts.split(/[,，\s]+/).filter(Boolean)};
- if(Object.keys(request).length)config.request=request;
+ if(model.reasoningEffort.trim())config.reasoning_effort=model.reasoningEffort.trim();
  return Object.fromEntries(Object.entries(config).filter(([,value])=>value!==''&&value!==null&&value!==undefined));
 }
 export function modelRef(providerId:string,modelId:string){return `${providerId}/${modelId}`;}

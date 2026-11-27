@@ -78,7 +78,6 @@ export function ResourceForm({domain,draft,onChange,busy,readOnly,data,onSave,on
  const text=(key:string)=>String(config[key]??'');
  const field=(label:string,child:(id:string)=>ReactNode,hint?:string)=>{const id=prefix+label;return <div className="space-y-2"><label htmlFor={id} className="block text-sm font-medium">{label}</label>{child(id)}{hint&&<p className="text-muted-foreground text-xs leading-5">{hint}</p>}</div>;};
  const input=(key:string,label:string,required=false,hint?:string)=>field(label,id=><Input id={id} className="h-10" value={text(key)} required={required} disabled={editing&&['name','provider_id','model_id'].includes(key)} onChange={event=>update(key,event.target.value)}/>,hint);
- const number=(key:string,label:string)=>field(label,id=><Input id={id} className="h-10" type="number" min="1" value={text(key)} onChange={event=>update(key,event.target.value===''?undefined:Number(event.target.value))}/>);
  const checkbox=(key:string,label:string)=> <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={!!config[key]} onChange={event=>update(key,event.target.checked)} className="size-4 accent-current"/>{label}</label>;
  const chosen=(key:string)=>Array.isArray(config[key])?config[key] as string[]:[];
  const picked=(key:string)=>Array.isArray(config[key])?(config[key] as string[]):[];
@@ -100,12 +99,12 @@ export function ResourceForm({domain,draft,onChange,busy,readOnly,data,onSave,on
    {domain==='skills'&&field('保存位置',id=><select id={id} className="border-input bg-background h-10 w-full rounded-lg border px-3" value={draft.scope||'global'} disabled={editing} onChange={event=>onChange({...draft,scope:event.target.value as 'global'|'project'})}><option value="global">Raccoon 全局（~/.raccoon/skills）</option><option value="project">当前项目（.agents/skills）</option></select>,'项目同名技能优先于全局技能；共享全局目录只读。')}
    {(domain==='skills'||domain==='subagents')&&<><div className="grid gap-5 sm:grid-cols-2">{input('name',domain==='skills'?'技能名称':'角色名称',true,domain==='subagents'?'使用字母、数字与短横线，例如 code-review。':undefined)}{input('description','说明')}</div></>}
    {domain==='subagents'&&<>
-    <p className="rounded-lg bg-foreground/[0.035] px-4 py-3 text-sm">模型继承父代理。工具、技能和执行预算可按角色调整。</p>
+    <p className="rounded-lg bg-foreground/[0.035] px-4 py-3 text-sm">模型继承父代理。工具和技能可按角色调整。</p>
     <div className="grid gap-5 sm:grid-cols-2">{scope('tools','工具范围','继承父代理工具（除 delegate）')}{scope('skills','技能范围','继承父代理技能')}</div>
     <ChipPicker label="允许的工具" unit="工具" items={localTools} groups={mcpGroups} selected={chosen('tools')} onChange={value=>update('tools',value)} empty="暂无可用工具。" hint="选择工具后，仅允许所选工具；MCP 服务按整组授权；全部取消代表不使用工具。"/>
     <ChipPicker label="引用技能" unit="技能" items={checklist(skillOptions,chosen('skills'))} selected={chosen('skills')} onChange={value=>update('skills',value)} empty="暂无技能包。" hint="选择技能后，仅引用所选技能。全部取消会禁用技能。"/>
     <details className="text-xs"><summary className="cursor-pointer py-2">查看可用工具</summary><div className="max-h-48 space-y-2 overflow-y-auto">{localTools.map(tool=><p key={tool.name}><strong>{tool.name}</strong> · {tool.description}</p>)}{mcpGroups.map(group=><p key={group.name}><strong>{group.name}</strong> · {group.items.length} 个 MCP 工具，整组授权</p>)}</div></details>
-    <div className="grid gap-5 sm:grid-cols-3">{number('max_tool_rounds','工具轮数上限')}{number('max_provider_calls','模型调用上限')}{number('max_turn_seconds','执行时限（秒）')}</div><div className="flex flex-wrap gap-x-6">{checkbox('allow_background','允许后台执行')}{checkbox('requires_worktree','要求隔离工作树')}</div>
+    <div className="flex flex-wrap gap-x-6">{checkbox('allow_background','允许后台执行')}{checkbox('requires_worktree','要求隔离工作树')}</div>
    </>}
    {(domain==='skills'||domain==='subagents')&&field(domain==='skills'?'SKILL.md':'SOUL.md',id=><Textarea id={id} rows={14} required spellCheck={false} className="font-mono text-sm leading-6" value={draft.content} onChange={event=>onChange({...draft,content:event.target.value})}/>,domain==='skills'?'可直接编写 Markdown；如有 YAML 元数据，其中的 name 须与技能名称一致。本地目录导入会保留 scripts、references 等资源。':'定义角色职责、工作流程与交付标准。')}
   </fieldset>

@@ -4,7 +4,8 @@ from urllib.error import HTTPError
 
 import pytest
 
-from raccoon.modules.tools import create_builtin_registry
+from raccoon.modules.tools.registry import ToolRegistry
+from raccoon.modules.tools import create_builtin_tools
 
 
 def feed(entries, total=None):
@@ -17,7 +18,7 @@ def feed(entries, total=None):
 
 
 def execute(tmp_path, **kwargs):
-    return execute_tool(create_builtin_registry(tmp_path, include_network_tools=True), 
+    return execute_tool(ToolRegistry(create_builtin_tools(tmp_path, include_network_tools=True)),
         'search_papers', {'query': 'all:"sparse autoencoder"', 'date_from': '2026-03-01',
                           'date_to': '2026-03-31', **kwargs})
 
@@ -110,8 +111,8 @@ def test_invalid_arguments_do_not_request_network(monkeypatch, tmp_path, args):
 
 
 def test_discovery_disabled_with_network_or_search_disabled(tmp_path):
-    assert 'search_papers' not in create_builtin_registry(tmp_path).names()
-    assert 'search_papers' not in create_builtin_registry(tmp_path, include_network_tools=True, include_web_search=False).names()
+    assert 'search_papers' not in ToolRegistry(create_builtin_tools(tmp_path)).names()
+    assert 'search_papers' not in ToolRegistry(create_builtin_tools(tmp_path, include_network_tools=True, include_web_search=False)).names()
 
 
 def test_permission_and_encoded_official_transport(monkeypatch, tmp_path):
@@ -133,7 +134,7 @@ def test_permission_and_encoded_official_transport(monkeypatch, tmp_path):
     monkeypatch.setattr(arxiv, '_resolves_to_private_ip', lambda *a, **kw: False)
     monkeypatch.setattr(arxiv.request, 'build_opener', lambda *a: Opener())
     monkeypatch.setattr(arxiv, '_last_request', 0)
-    tool = create_builtin_registry(tmp_path, include_network_tools=True).get('search_papers')
+    tool = ToolRegistry(create_builtin_tools(tmp_path, include_network_tools=True)).get('search_papers')
     assert tool.permission.action == PermissionAction.NETWORK_REQUEST
     assert tool.permission.target_value == arxiv.ENDPOINT
     assert execute(tmp_path, query='all:"3D reconstruction" AND all:pose').ok

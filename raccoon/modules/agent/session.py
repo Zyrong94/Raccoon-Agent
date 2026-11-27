@@ -84,7 +84,7 @@ class AgentSession:
             )
             if not committed:
                 return message_id
-            self.flush_tool_definitions()
+            self.save_pending_tool_definitions()
             if self.tool_result_committed is not None:
                 self.tool_result_committed(tool_call, result)
             return message_id
@@ -214,7 +214,8 @@ class AgentSession:
                 if self.allowed_tool_names is None or definition.name in self.allowed_tool_names:
                     self.pending_tool_definitions.append(deepcopy(definition))
 
-    def flush_tool_definitions(self) -> None:
+    def save_pending_tool_definitions(self) -> None:
+        """普通工具结果齐全后，去重并保存待加载定义；写入成功才清空暂存。"""
         with self._tool_result_lock:
             if not self.pending_tool_definitions:
                 return
@@ -228,28 +229,21 @@ class AgentSession:
                         pending_calls.discard(part.metadata["tool_call_id"])
             if pending_calls:
                 return
-            definitions = self.pending_tool_definitions
-            self.declare_tool_definitions(definitions)
-            self.pending_tool_definitions = []
-
-    def declare_tool_definitions(self, definitions: list[ToolDefinition]) -> None:
-        with self._tool_result_lock:
             previous = self.loaded_tool_definitions()
             additions = []
-            for definition in definitions:
+            for definition in self.pending_tool_definitions:
                 if self.allowed_tool_names is not None and definition.name not in self.allowed_tool_names:
                     continue
                 if previous.get(definition.name) != definition:
                     additions.append(deepcopy(definition))
                     previous[definition.name] = definition
-            if not additions:
-                return
-            view = self.data
-            self.store.append_tool_definitions_loaded(
-                self.data,
-                additions,
-                after_message_id=view.messages[-1].id if view.messages else None,
-            )
+            if additions:
+                self.store.append_tool_definitions_loaded(
+                    self.data,
+                    additions,
+                    after_message_id=view.messages[-1].id if view.messages else None,
+                )
+            self.pending_tool_definitions = []
 
     def _pending_tool_calls_from_tail(self) -> list[ToolCall]:
         messages = self.data.messages

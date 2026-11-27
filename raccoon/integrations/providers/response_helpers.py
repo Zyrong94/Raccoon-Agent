@@ -1,17 +1,6 @@
-"""完整模型响应的字段读取与用量转换"""
-
-from typing import Any
+"""完整模型响应的用量转换"""
 
 from raccoon.runtime.model_types import TokenUsage
-
-
-# 从字典或 SDK 对象中读取指定字段。
-def read_field(value: Any, name: str, default: Any = None) -> Any:
-    """从返回结果中取一个值"""
-
-    if isinstance(value, dict):
-        return value.get(name, default)
-    return getattr(value, name, default)
 
 
 # 整理 token 用量，缺少总数时按输入输出相加。

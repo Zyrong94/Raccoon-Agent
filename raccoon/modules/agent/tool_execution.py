@@ -223,8 +223,8 @@ def _dispatch_background(
     observed_revision = _validate_background_task_id(loop, tool_call.name, task_id)
     if isinstance(observed_revision, ToolResult):
         return observed_revision
-    allowed = loop.background_tool_names
-    if allowed is not None and tool_call.name not in allowed:
+    tool = loop.session.tool_registry.get(tool_call.name)
+    if tool is None or not tool.supports_background:
         return make_error_result(
             tool_call.name,
             f"工具 {tool_call.name} 不支持后台执行；请去掉 run_in_background 后重试。",
@@ -468,8 +468,7 @@ async def _check_reviewed_operation(
 
 
 async def _wait_for_permission(loop: AgentRun, trusted: ToolCall, confirmation: UserInputRequest) -> str:
-    """等待人工输入；取消时结算未执行调用，等待时间不计入执行预算。"""
-    waiting_at = loop.clock()
+    """等待人工输入，取消时结算未执行的调用。"""
     try:
         answer = await loop.request_input(confirmation)
         loop._check_cancelled()
@@ -478,10 +477,6 @@ async def _wait_for_permission(loop: AgentRun, trusted: ToolCall, confirmation: 
         loop.session.settle_tool_result(tool_call=trusted, result=result)
         loop._emit_tool_event("interrupted", trusted, result=result)
         raise
-    finally:
-        if loop.turn_started_at is not None:
-            loop.turn_started_at += loop.clock() - waiting_at
-    loop._check_cancelled()
     return answer
 
 
@@ -503,7 +498,6 @@ async def _record_result(
             data.pop("requires_user_input", None)
             data["answer"] = answer
             result = replace(result, content=f"{pending.question}\n用户回答：{answer}", data=data)
-    loop._observe_tool_result(tool_call, result)
     loop.session.settle_tool_result(tool_call=tool_call, result=result)
 
 

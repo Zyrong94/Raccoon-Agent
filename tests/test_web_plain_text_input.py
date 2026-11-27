@@ -3,6 +3,7 @@
 import asyncio
 import json
 import time
+from raccoon.runtime.model_types import MessagePart
 from threading import Event
 
 import pytest
@@ -28,7 +29,11 @@ class RecordingProvider(ChatProvider):
 
     async def acomplete(self, request):
         self.requests.append(request)
-        return ChatResponse(provider=self.name, model=self.model, content="received")
+        return ChatResponse(
+            provider=self.name,
+            model=self.model,
+            parts=[MessagePart(kind="text", content="received")],
+        )
 
 
 class OfflineMcp:
@@ -95,12 +100,20 @@ def test_busy_web_message_queues_different_model_and_permission_for_its_own_turn
         entered.set()
         assert release.wait(10)
         observe(first)
-        return ChatResponse(provider=first.name, model=first.model, content="first")
+        return ChatResponse(
+            provider=first.name,
+            model=first.model,
+            parts=[MessagePart(kind="text", content="first")],
+        )
 
     async def second_reply(request):
         observe(second)
         second_entered.set()
-        return ChatResponse(provider=second.name, model=second.model, content="second")
+        return ChatResponse(
+            provider=second.name,
+            model=second.model,
+            parts=[MessagePart(kind="text", content="second")],
+        )
 
     monkeypatch.setattr(first, "acomplete", first_reply)
     monkeypatch.setattr(second, "acomplete", second_reply)

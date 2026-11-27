@@ -69,7 +69,7 @@ def create_web_search_tool() -> Tool:
 
         return make_error_result("web_search", f"所有搜索 provider 均不可用：{last_error or '无可用 provider'}")
 
-    tool = tool_from_function(web_search)
+    tool = tool_from_function(web_search, supports_background=True)
     tool.definition.parameters["properties"]["search_type"]["enum"] = ["auto", "fast", "deep"]
     tool.definition.parameters["properties"]["livecrawl"].update(
         type=["string", "boolean"],

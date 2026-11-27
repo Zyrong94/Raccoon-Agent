@@ -40,15 +40,15 @@ def test_invalid_context_window_is_rejected(value):
 
 def test_output_budget_cannot_exhaust_context_window():
     config = model_config()
-    config["models"]["custom/model"]["request"] = {"max_tokens": 128000}
-    with pytest.raises(ModelCatalogError, match="95%"):
+    config["models"]["custom/model"]["context_window"] = 32768
+    with pytest.raises(ModelCatalogError, match="预留预算"):
         build_model_catalog(config)
 
 
 @pytest.mark.parametrize("field,value", [("max_tokens", True), ("temperature", True), ("temperature", float("nan")), ("extra_body", {"model": "override"})])
 def test_request_parameters_are_validated(field, value):
     config = model_config()
-    config["models"]["custom/model"]["request"] = {field: value}
+    config["models"]["custom/model"][field] = value
     with pytest.raises(ModelCatalogError):
         build_model_catalog(config)
 
@@ -63,9 +63,8 @@ def test_models_require_a_declared_provider():
 def test_defaults_and_requested_effort_are_not_written_back_to_input():
     config = model_config()
     config["models"]["custom/model"].update(supported_reasoning_efforts=["custom"])
-    config["models"]["custom/model"]["request"] = {"reasoning_effort": "custom"}
+    config["models"]["custom/model"]["reasoning_effort"] = "custom"
     before = deepcopy(config)
     catalog = build_model_catalog(config)
-    assert catalog.models["custom/model"].request.reasoning_effort == "custom"
-    assert catalog.models["custom/model"].request.extra_body == {}
+    assert catalog.models["custom/model"].reasoning_effort == "custom"
     assert config == before

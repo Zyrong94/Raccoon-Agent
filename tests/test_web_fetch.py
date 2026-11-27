@@ -12,7 +12,8 @@ from urllib.request import Request
 import pytest
 
 from raccoon.modules.permissions.types import PermissionAction
-from raccoon.modules.tools import create_builtin_registry
+from raccoon.modules.tools.registry import ToolRegistry
+from raccoon.modules.tools import create_builtin_tools
 import raccoon.modules.tools.fetch as fetch_module
 
 
@@ -73,7 +74,8 @@ def transport(monkeypatch):
 
 
 def run_fetch(tmp_path, **arguments):
-    registry = create_builtin_registry(tmp_path, include_network_tools=True)
+    tools = create_builtin_tools(tmp_path, include_network_tools=True)
+    registry = ToolRegistry(tools)
     return execute_tool(registry, "web_fetch", {"url": PAGE_URL, **arguments})
 
 
@@ -277,7 +279,7 @@ def test_web_fetch_rejects_hostname_resolving_to_private_address(tmp_path, trans
 
 
 def test_web_fetch_permission_targets_original_url(tmp_path):
-    tool = create_builtin_registry(tmp_path, include_network_tools=True).get("web_fetch")
+    tool = ToolRegistry(create_builtin_tools(tmp_path, include_network_tools=True)).get("web_fetch")
     assert tool is not None
     assert tool.permission.action == PermissionAction.NETWORK_REQUEST
     assert tool.permission.target_arg == "url"
@@ -367,7 +369,7 @@ def test_web_fetch_allows_fake_ip_only_with_effective_http_proxy(tmp_path, trans
 @pytest.mark.parametrize("url", ["https://198.18.0.133/", "https://127.0.0.1/", "https://localhost/", "https://192.168.1.1/"])
 def test_proxy_does_not_allow_literal_private_targets(tmp_path, transport, monkeypatch, url):
     monkeypatch.setattr(fetch_module.request, "getproxies", lambda: {"https": "http://127.0.0.1:7897"})
-    result = execute_tool(create_builtin_registry(tmp_path, include_network_tools=True), "web_fetch", {"url": url})
+    result = execute_tool(ToolRegistry(create_builtin_tools(tmp_path, include_network_tools=True)), "web_fetch", {"url": url})
     assert not result.ok
     assert "内网" in result.error
 

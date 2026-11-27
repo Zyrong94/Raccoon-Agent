@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from raccoon.runtime.model_types import MessagePart
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from contextlib import contextmanager, ExitStack
@@ -16,14 +17,12 @@ from typing import Any
 
 import anyio
 
-from raccoon.application.conversations.model_switching import model_request_options
 from raccoon.config.models import ModelCatalogError
 from raccoon.integrations.providers.factory import create_provider_for_model
 
 from raccoon.runtime.cancellation import CancellationToken
 from raccoon.modules.agent.run import AgentRun, run_agent, AgentRunPhase, ToolExecutionEvent
 from raccoon.runtime.background import BackgroundJobManager
-from raccoon.modules.agent.loop_limits import AgentLoopLimits
 from raccoon.modules.agent.runtime_capabilities import AgentRuntimeCapabilities
 from raccoon.modules.agent.session import AgentSession
 from raccoon.app.payloads import MessageInput
@@ -33,7 +32,7 @@ from raccoon.runtime.user_input import UserInputRequest
 from raccoon.modules.context.context_builder import ContextBuilder
 from raccoon.modules.context.compaction import CompactionSettings
 from raccoon.runtime.model_provider import AuxiliaryModels, ChatProvider
-from raccoon.runtime.model_types import ChatResponse, MainRequestOptions
+from raccoon.runtime.model_types import ChatResponse
 from raccoon.modules.tools.types import Tool
 
 
@@ -49,8 +48,7 @@ class SessionRuntime:
     context_builder: ContextBuilder | None = None
     compaction_settings: CompactionSettings | None = None
     memory_service: Any | None = None
-    limits: AgentLoopLimits | None = None
-    request_options: MainRequestOptions = field(default_factory=MainRequestOptions)
+    reasoning_effort: str | None = None
     auxiliary_models: AuxiliaryModels = field(default_factory=AuxiliaryModels)
     routing_timeout_seconds: float | None = None
     context_window: int | None = None
@@ -118,16 +116,16 @@ class SessionRuntime:
         provider = None
         if profile is not None and profile != self.model_catalog.models.get(current_ref):
             provider = create_provider_for_model(app_config, profile)
-            options = model_request_options(profile)
+            reasoning_effort = profile.reasoning_effort
             effort = self.session.data.metadata.get("reasoning_effort")
             if effort:
                 if effort not in profile.supported_reasoning_efforts:
                     raise ModelCatalogError("当前推理强度不受新模型配置支持，请重新选择")
-                options = replace(options, extra_body={**options.extra_body, "reasoning_effort": effort})
+                reasoning_effort = effort
         self.app_config = app_config
         self.model_catalog = catalog
         if provider is not None:
-            self.set_model(provider, request_options=options, context_window=profile.context_window)
+            self.set_model(provider, reasoning_effort=reasoning_effort, context_window=profile.context_window)
 
     def switch_model(self, spec: str) -> None:
         ref = spec.strip()
@@ -137,9 +135,9 @@ class SessionRuntime:
         if profile is None:
             raise ModelCatalogError(f"未配置模型：{ref}，请从全局模型目录重新选择")
         provider = create_provider_for_model(self.app_config, profile)
-        options = model_request_options(profile)
+        reasoning_effort = profile.reasoning_effort
         self.session.store.append_session_metadata_updated(self.session.data, model_ref=ref, reasoning_effort="")
-        self.set_model(provider, request_options=options, context_window=profile.context_window)
+        self.set_model(provider, reasoning_effort=reasoning_effort, context_window=profile.context_window)
         self.model_ref = ref
 
     def set_effort(self, effort: str | None) -> None:
@@ -147,28 +145,23 @@ class SessionRuntime:
         profile = self.model_catalog.models[model_ref]
         if effort is not None and effort not in profile.supported_reasoning_efforts:
             raise ValueError("当前模型不支持这个推理强度")
-        extra_body = dict(self.request_options.extra_body)
-        extra_body.pop("reasoning", None)
-        extra_body.pop("reasoning_effort", None)
-        selected_effort = profile.request.reasoning_effort if effort is None else effort
-        if selected_effort is not None:
-            extra_body["reasoning_effort"] = selected_effort
+        selected_effort = profile.reasoning_effort if effort is None else effort
         # 元数据中的 None 不覆盖旧值；空字符串明确表示恢复模型默认值。
         self.session.store.append_session_metadata_updated(
             self.session.data,
             reasoning_effort="" if effort is None else effort,
         )
-        self.request_options = replace(self.request_options, extra_body=extra_body)
+        self.reasoning_effort = selected_effort
 
     def set_model(
         self,
         provider: ChatProvider,
         *,
-        request_options: MainRequestOptions,
+        reasoning_effort: str | None,
         context_window: int | None,
     ) -> None:
         self.provider = provider
-        self.request_options = request_options
+        self.reasoning_effort = reasoning_effort
         self.context_window = context_window
         self.native_async_tools = (
             self.runtime_capabilities.enable_native_async_tools
@@ -262,15 +255,15 @@ class SessionRuntime:
         return self.tools_provider() if self.tools_provider is not None else self.tools
 
     def create_run(self, cancellation_token: CancellationToken, *, initial_input=None, take_pending_inputs=None, try_close_input=None) -> AgentRun:
-        provider, request_options, context_window = self.provider, self.request_options, self.context_window
+        provider, reasoning_effort, context_window = self.provider, self.reasoning_effort, self.context_window
         if isinstance(initial_input, MessageInput) and initial_input.settings is not None:
-            provider, request_options, context_window = self.model_for_turn(initial_input.settings.model_ref)
+            provider, reasoning_effort, context_window = self.model_for_turn(initial_input.settings.model_ref)
         kwargs = {
             "session": self.session,
             "application": self.application,
             "request_input": self._request_input if self.runtime_capabilities.allow_user_input and (self.input_event_handler is not None or self.application is not None) else None,
             "provider": provider,
-            "request_options": request_options,
+            "reasoning_effort": reasoning_effort,
             "auxiliary_models": self.auxiliary_models,
             "routing_timeout_seconds": self.routing_timeout_seconds,
             "context_window": context_window,
@@ -280,7 +273,6 @@ class SessionRuntime:
             "context_builder": self.context_builder,
             "compaction_settings": self.compaction_settings,
             "memory_service": self.memory_service,
-            "limits": self.limits,
             "tool_event_handler": self.tool_event_handler,
             "run_phase_handler": self.run_phase_handler,
             "cancellation_token": cancellation_token,
@@ -302,19 +294,18 @@ class SessionRuntime:
 
     def model_for_turn(self, model_ref):
         if model_ref == self.model_ref:
-            return self.provider, self.request_options, self.context_window
+            return self.provider, self.reasoning_effort, self.context_window
         profile = self.model_catalog.models.get(model_ref)
         if profile is None:
             raise ModelCatalogError(f"未配置模型：{model_ref}")
-        return create_provider_for_model(self.app_config, profile), model_request_options(profile), profile.context_window
+        return create_provider_for_model(self.app_config, profile), profile.reasoning_effort, profile.context_window
 
     def _waiting_for_input_response(self, pending: UserInputRequest | None) -> ChatResponse:
         return ChatResponse(
             provider=self.provider.name,
             model=self.provider.model,
-            content=pending.question if pending else "等待用户输入。",
             finish_reason="waiting_for_user_input",
-            raw={"pending_input": pending},
+            parts=[MessagePart(kind="text", content=pending.question if pending else "等待用户输入。")],
         )
 
 

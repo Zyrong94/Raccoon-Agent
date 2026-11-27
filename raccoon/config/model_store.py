@@ -68,7 +68,7 @@ class ModelConfigStore:
         if not isinstance(fields, dict):
             raise ValueError("模型配置必须是对象")
         allowed = {"provider_id", "provider_label", "base_url", "api_key_env", "model_id", "default",
-                   "label", "context_window", "vision", "pdf_input", "parallel_tool_calls", "supported_reasoning_efforts", "request"}
+                   "label", "context_window", "vision", "pdf_input", "parallel_tool_calls", "supported_reasoning_efforts", "reasoning_effort"}
         if set(fields) - allowed:
             raise ValueError("模型配置包含未知字段；密钥只支持环境变量名称")
         provider_id = fields.get("provider_id")
@@ -83,7 +83,7 @@ class ModelConfigStore:
             if source in fields:
                 provider[target] = fields[source]
         model = {}
-        for name in ("label", "context_window", "vision", "pdf_input", "parallel_tool_calls", "supported_reasoning_efforts", "request"):
+        for name in ("label", "context_window", "vision", "pdf_input", "parallel_tool_calls", "supported_reasoning_efforts", "reasoning_effort"):
             if name in fields:
                 model[name] = deepcopy(fields[name])
         build_model_catalog({"providers": {provider_id: provider}, "models": {model_ref: model}})

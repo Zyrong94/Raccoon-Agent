@@ -166,12 +166,16 @@ async def review_tool_operation(
         return decision
 
     model_request = ChatRequest(
-        messages=[ChatMessage(role="system", content=REVIEW_POLICY), ChatMessage(role="user", content=encoded)],
+        messages=[ChatMessage(
+            role="system",
+            text=REVIEW_POLICY,
+        ), ChatMessage(
+                      role="user",
+                      text=encoded,
+                  )],
         tools=[], tool_choice="none",
     )
     loop._check_cancelled()
-    loop._check_turn_timeout()
-    loop._reserve_provider_call()
     task = asyncio.create_task(provider.acomplete(model_request))
     usage = None
     try:
@@ -180,7 +184,6 @@ async def review_tool_operation(
                 while not task.done():
                     await asyncio.wait({task}, timeout=0.1)
                     loop._check_cancelled()
-                    loop._check_turn_timeout()
         except TimeoutError:
             decision.reason = "自动审核超时，需要人工确认。"
         else:

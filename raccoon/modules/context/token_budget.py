@@ -41,15 +41,14 @@ def build_context_budget(
     messages: list[ChatMessage],
     tools: list[ToolDefinition],
     context_window: int | None,
-    max_output_tokens: int | None,
+    output_reserve: int = DEFAULT_OUTPUT_RESERVE,
     history_overhead_tokens: int = 0,
 ) -> ContextBudget:
     if isinstance(history_overhead_tokens, bool) or not isinstance(history_overhead_tokens, int) or history_overhead_tokens < 0:
         raise ValueError("history overhead must be a non-negative integer")
     resolved_window = DEFAULT_CONTEXT_WINDOW if context_window is None else context_window
-    output_reserve = DEFAULT_OUTPUT_RESERVE if max_output_tokens is None else max_output_tokens
-    if resolved_window <= 0 or output_reserve <= 0:
-        raise ValueError("context window and output reserve must be positive")
+    if resolved_window <= 0 or output_reserve < 0:
+        raise ValueError("context window must be positive and output reserve must be non-negative")
 
     input_capacity = resolved_window - output_reserve
     if input_capacity <= 0:

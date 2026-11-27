@@ -16,13 +16,12 @@ from raccoon.app.conversations import SessionSnapshot
 
 CLASSIFIER_TIMEOUT = 5.0
 from raccoon.runtime.model_provider import ChatProvider
-from raccoon.runtime.model_types import ChatMessage, ChatRequest, ChatResponse, MainRequestOptions
+from raccoon.runtime.model_types import ChatMessage, ChatRequest, ChatResponse
 
 RoutingMode = Literal["queue", "steer", "interrupt", "parallel"]
 
 ROUTING_MODES: frozenset[str] = frozenset({"queue", "steer", "interrupt", "parallel"})
 
-ROUTING_MAX_TOKENS = 256
 ROUTING_MAX_DATA_CHARS = 16000
 
 ROUTING_SYSTEM_PROMPT = """You are an event-routing classifier, not the assistant answering the user.
@@ -91,7 +90,7 @@ class MessageRouteClassifier:
         self,
         provider: ChatProvider,
         *,
-        request_options: MainRequestOptions | None = None,
+        reasoning_effort: str | None = None,
         timeout_seconds: float = CLASSIFIER_TIMEOUT,
     ) -> None:
         if (
@@ -102,7 +101,7 @@ class MessageRouteClassifier:
         ):
             raise ValueError("timeout_seconds must be a positive finite number")
         self.provider = provider
-        self.request_options = request_options if request_options is not None else MainRequestOptions()
+        self.reasoning_effort = reasoning_effort
         self.timeout_seconds = float(timeout_seconds)
 
     async def classify(
@@ -187,17 +186,20 @@ class MessageRouteClassifier:
         raise EventRoutingError(f"unsupported explicit_mode: {value!r}")
 
     def _build_request(self, payload_json: str) -> ChatRequest:
-        options = self.request_options.as_chat_request_kwargs()
-        if options.get("max_tokens") is None:
-            options["max_tokens"] = ROUTING_MAX_TOKENS
         return ChatRequest(
             messages=[
-                ChatMessage(role="system", content=ROUTING_SYSTEM_PROMPT),
-                ChatMessage(role="user", content=payload_json),
+                ChatMessage(
+                    role="system",
+                    text=ROUTING_SYSTEM_PROMPT,
+                ),
+                ChatMessage(
+                    role="user",
+                    text=payload_json,
+                ),
             ],
             tools=[],
             tool_choice="none",
-            **options,
+            reasoning_effort=self.reasoning_effort,
         )
 
     async def _request(self, request: ChatRequest) -> ChatResponse | None:

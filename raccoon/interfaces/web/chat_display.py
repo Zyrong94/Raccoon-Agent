@@ -235,8 +235,7 @@ class ChatDisplay:
             'permission_mode': self.runtime.session.mode,
             'model': model,
             'input_capabilities': capabilities,
-            'effort': runner.request_options.extra_body.get('reasoning_effort')
-                      or runner.request_options.extra_body.get('reasoning', {}).get('effort'),
+            'effort': runner.reasoning_effort,
             'models': model_options(runner.model_catalog),
             **execution,
             'live': [],

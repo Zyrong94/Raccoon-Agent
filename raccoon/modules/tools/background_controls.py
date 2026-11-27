@@ -17,32 +17,6 @@ _HANDLE_DESCRIPTION = (
     "shown by background_status in later responses."
 )
 
-# Phase 1 默认允许后台化的工具：只读探查 + 已做权限预检的执行/网络工具。
-# 刻意排除 TaskPlan 写入、ask_user（控制面）以及全部写入类工具（要等
-# worktree 隔离），避免后台任务在没有安全边界时改动主工作区或伪造用户交互。
-DEFAULT_BACKGROUND_TOOL_NAMES = frozenset(
-    {
-        "ls",
-        "view",
-        "grep",
-        "glob",
-        "tree",
-        "read_multi",
-        "git_status",
-        "git_diff",
-        "git_log",
-        "diagnostics",
-        "shell",
-        "python_exec",
-        "web_fetch",
-        "web_search",
-        "search_papers",
-        "delegate",
-    }
-)
-
-
-
 def with_background_controls(definition: ToolDefinition) -> ToolDefinition:
     """返回一个附加后台控制字段（含可选 TaskPlan ``task_id``）的 schema 副本。
 

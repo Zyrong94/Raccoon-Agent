@@ -88,7 +88,7 @@ def create_shell_tool(root: str | Path, *, access: SandboxAccess | None = None) 
             )
         return tool_result
 
-    tool = tool_from_function(shell)
+    tool = tool_from_function(shell, supports_background=True)
     tool.definition.parameters["properties"]["env"] = {
         "type": "object",
         "additionalProperties": {"type": "string"},

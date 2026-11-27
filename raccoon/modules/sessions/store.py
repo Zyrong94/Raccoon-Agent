@@ -6,7 +6,7 @@ import json
 import threading
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
-from dataclasses import asdict, fields
+from dataclasses import asdict, fields, replace
 from copy import deepcopy
 
 from raccoon.modules.sessions.compaction import CompactionRecord
@@ -491,8 +491,7 @@ class SessionStore:
     ) -> str:
         """把 provider 返回的 assistant response 写入事件日志。
 
-        assistant response 可能同时包含可见文本和 tool_calls。这里统一转成 MessagePart，
-        确保后续 ContextBuilder 能重新投影出合法的 provider assistant message。
+        parts 已按 API 输出顺序保存正文、推理项和工具调用；这里仅分配本地标识。
         """
 
         message_id = new_message_id()
@@ -509,9 +508,7 @@ class SessionStore:
                 "model": response.model,
                 "finish_reason": response.finish_reason,
                 "usage": asdict(response.usage) if response.usage is not None else None,
-                "diagnostics": asdict(response.diagnostics),
                 **({"native_completions": native_completions} if native_completions else {}),
-                **({"provider_state": response.provider_state} if response.provider_state else {}),
             },
         )
         return assistant_message_id
@@ -750,20 +747,12 @@ def tool_call_to_part(*, message_id: str, tool_call: ToolCall) -> MessagePart:
 
 
 def assistant_response_to_parts(*, message_id: str, response: ChatResponse) -> list[MessagePart]:
-    """把 provider assistant response 转成内部 parts。
+    """保留响应中的有序 parts，分配会话消息和部分的本地标识。"""
 
-    provider 协议里的 assistant 消息可以同时包含可见文本和 tool_calls。这里集中做转换，
-    避免不同调用方手写 metadata 导致 tool_call_id / arguments 字段漂移。
-    """
-
-    parts: list[MessagePart] = []
-    if response.content:
-        parts.append(
-            MessagePart(id=new_part_id(), message_id=message_id, kind="text", content=response.content)
-        )
-    for tool_call in response.tool_calls:
-        parts.append(tool_call_to_part(message_id=message_id, tool_call=tool_call))
-    return parts
+    return [
+        replace(part, id=new_part_id(), message_id=message_id, metadata=deepcopy(part.metadata))
+        for part in response.parts
+    ]
 
 
 def tool_result_to_part(

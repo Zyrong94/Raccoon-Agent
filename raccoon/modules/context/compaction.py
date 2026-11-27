@@ -6,6 +6,7 @@ No content routing, archive replacement, first-consumption state or fallback pip
 from __future__ import annotations
 import json
 from dataclasses import dataclass
+from raccoon.modules.context.budget_defaults import DEFAULT_OUTPUT_RESERVE
 from raccoon.modules.context.summary import summarize, combine_usage
 from raccoon.modules.context.token_budget import IMAGE_INPUT_TOKEN_ESTIMATE, estimate_text_tokens
 from raccoon.modules.context.tool_sequence import validate_tool_call_sequence, earliest_pending_async_index, InvalidToolCallSequenceError
@@ -13,12 +14,11 @@ from raccoon.modules.sessions.compaction import CompactionRecord
 from raccoon.modules.sessions.identity import new_event_id
 from raccoon.modules.sessions.models import AgentMessage, SessionData, utc_now_iso
 from raccoon.runtime.model_provider import ChatProvider
-from raccoon.runtime.model_types import MainRequestOptions
 
 @dataclass(frozen=True, slots=True)
 class CompactionSettings:
     enabled: bool = True
-    reserve_tokens: int = 16384
+    reserve_tokens: int = DEFAULT_OUTPUT_RESERVE
     keep_recent_tokens: int = 20000
 
     def __post_init__(self) -> None:
@@ -35,6 +35,7 @@ class CompactionPreparation:
     first_kept_message_id: str
     previous_summary: str | None
     tokens_before: int
+    reasoning_cutoff_message_id: str
 
 
 def effective_messages(view: SessionData) -> list[AgentMessage]:
@@ -113,12 +114,13 @@ def prepare_compaction(view: SessionData, settings: CompactionSettings, tokens_b
         first_kept_message_id=messages[cut].id,
         previous_summary=view.compactions[-1].summary if view.compactions else None,
         tokens_before=tokens_before,
+        reasoning_cutoff_message_id=view.messages[-1].id,
     )
 
 
 async def generate_compaction(
     preparation: CompactionPreparation, *, session_id: str,
-    provider: ChatProvider, request_options: MainRequestOptions,
+    provider: ChatProvider, reasoning_effort: str | None = None,
     instructions: str = "",
 ) -> CompactionRecord:
     history = preparation.previous_summary or "No prior history."
@@ -127,13 +129,13 @@ async def generate_compaction(
     if generated_history:
         history, usage = await summarize(
             preparation.messages_to_summarize, provider=provider,
-            request_options=request_options, previous_summary=preparation.previous_summary,
+            reasoning_effort=reasoning_effort, previous_summary=preparation.previous_summary,
             instructions=instructions,
         )
     if preparation.turn_prefix_messages:
         prefix, prefix_usage = await summarize(
             preparation.turn_prefix_messages, provider=provider,
-            request_options=request_options, turn_prefix=True, instructions=instructions,
+            reasoning_effort=reasoning_effort, turn_prefix=True, instructions=instructions,
         )
         history += "\n\n---\n\n**Turn Context (split turn):**\n\n" + prefix
         usage = combine_usage(usage, prefix_usage) if generated_history else prefix_usage
@@ -141,4 +143,5 @@ async def generate_compaction(
         id=new_event_id(), session_id=session_id, created_at=utc_now_iso(),
         summary=history, first_kept_message_id=preparation.first_kept_message_id,
         tokens_before=preparation.tokens_before, usage=usage,
+        reasoning_cutoff_message_id=preparation.reasoning_cutoff_message_id,
     )

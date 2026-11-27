@@ -65,6 +65,7 @@ class Tool:
     executor: Callable[..., ToolResult]
     permission: ToolPermissionSpec | None = None
     exposure: Literal["direct", "deferred"] = "direct"
+    supports_background: bool = False  # 允许后台执行；具体调用仍由模型选择并由运行时校验。
 
     @property
     def name(self) -> str:

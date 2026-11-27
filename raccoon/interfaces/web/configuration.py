@@ -117,10 +117,11 @@ async def test_configuration(workbench, store, domain, record, prompt):
     profile = app_config.model_catalog().models[record["id"]]
     provider = create_provider_for_model(app_config, profile)
     request = ChatRequest(
-        messages=[ChatMessage(role="user", content="Reply with OK.")],
-        max_tokens=32,
-        temperature=profile.request.temperature,
-        extra_body=profile.request.extra_body,
+        messages=[ChatMessage(
+            role="user",
+            text="Reply with OK.",
+        )],
+        reasoning_effort=profile.reasoning_effort,
         tool_choice="none",
     )
     response = await asyncio.wait_for(provider.acomplete(request), timeout=20)

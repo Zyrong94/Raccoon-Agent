@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from raccoon.modules.tools.execution import execute_tool
 
-from raccoon.modules.tools import create_builtin_registry
+from raccoon.modules.tools.registry import ToolRegistry
+from raccoon.modules.tools import create_builtin_tools
 from raccoon.modules.tools.apply_patch import create_apply_patch_tool
 from raccoon.modules.tools.delete import create_delete_tool
 from raccoon.modules.tools.edit import create_edit_tool
@@ -14,7 +15,8 @@ from raccoon.modules.tools.write import create_write_tool
 def test_apply_patch_updates_file(tmp_path):
     target = tmp_path / "app.py"
     target.write_text("old\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     patch = """*** Begin Patch
 *** Update File: app.py
@@ -36,7 +38,8 @@ def test_apply_patch_updates_file(tmp_path):
 def test_apply_patch_dry_run_does_not_write(tmp_path):
     target = tmp_path / "app.py"
     target.write_text("old\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     patch = """*** Begin Patch
 *** Update File: app.py
@@ -55,7 +58,8 @@ def test_apply_patch_dry_run_does_not_write(tmp_path):
 def test_apply_patch_rejects_missing_old_text(tmp_path):
     target = tmp_path / "app.py"
     target.write_text("old\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     patch = """*** Begin Patch
 *** Update File: app.py
@@ -74,7 +78,8 @@ def test_apply_patch_rejects_missing_old_text(tmp_path):
 def test_apply_patch_reports_noop_update_without_rewriting(tmp_path):
     target = tmp_path / "app.py"
     target.write_text("same\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
     patch = """*** Begin Patch
 *** Update File: app.py
 @@
@@ -93,7 +98,8 @@ def test_apply_patch_reports_noop_update_without_rewriting(tmp_path):
 
 
 def test_apply_patch_adds_file(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
     patch = """*** Begin Patch
 *** Add File: notes/todo.txt
 +hello
@@ -110,7 +116,8 @@ def test_apply_patch_adds_file(tmp_path):
 def test_apply_patch_deletes_file(tmp_path):
     target = tmp_path / "old.txt"
     target.write_text("delete me\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
     patch = """*** Begin Patch
 *** Delete File: old.txt
 *** End Patch"""
@@ -123,7 +130,8 @@ def test_apply_patch_deletes_file(tmp_path):
 
 
 def test_apply_patch_rejects_paths_outside_root(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
     patch = """*** Begin Patch
 *** Add File: ../outside.txt
 +secret
@@ -138,7 +146,8 @@ def test_apply_patch_rejects_paths_outside_root(tmp_path):
 def test_apply_patch_moves_file_and_updates_content(tmp_path):
     source = tmp_path / "old.py"
     source.write_text("name = 'old'\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
     patch = """*** Begin Patch
 *** Update File: old.py
 *** Move to: src/new.py
@@ -158,7 +167,8 @@ def test_apply_patch_moves_file_and_updates_content(tmp_path):
 def test_apply_patch_moves_file_without_content_changes(tmp_path):
     source = tmp_path / "old.py"
     source.write_text("print('hi')\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
     patch = """*** Begin Patch
 *** Update File: old.py
 *** Move to: new.py
@@ -174,7 +184,8 @@ def test_apply_patch_moves_file_without_content_changes(tmp_path):
 def test_apply_patch_dry_run_move_does_not_write(tmp_path):
     source = tmp_path / "old.py"
     source.write_text("print('hi')\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
     patch = """*** Begin Patch
 *** Update File: old.py
 *** Move to: new.py
@@ -189,7 +200,8 @@ def test_apply_patch_dry_run_move_does_not_write(tmp_path):
 
 def test_apply_patch_rejects_move_destination_outside_root(tmp_path):
     (tmp_path / "old.py").write_text("print('hi')\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
     patch = """*** Begin Patch
 *** Update File: old.py
 *** Move to: ../new.py
@@ -202,7 +214,8 @@ def test_apply_patch_rejects_move_destination_outside_root(tmp_path):
 
 
 def test_write_creates_utf8_file_inside_root(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "write", {"path": "notes/todo.txt", "content": "你好\n"})
 
@@ -218,7 +231,8 @@ def test_write_creates_utf8_file_inside_root(tmp_path):
 def test_write_reports_diff_when_overwriting_existing_file(tmp_path):
     target = tmp_path / "todo.txt"
     target.write_text("old\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "write", {"path": "todo.txt", "content": "new\n"})
 
@@ -234,7 +248,8 @@ def test_write_reports_noop_without_rewriting_identical_content(tmp_path):
     target = tmp_path / "todo.txt"
     target.write_text("same\n", encoding="utf-8")
     before = target.stat().st_mtime_ns
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "write", {"path": "todo.txt", "content": "same\n"})
 
@@ -247,7 +262,8 @@ def test_write_reports_noop_without_rewriting_identical_content(tmp_path):
 
 
 def test_write_rejects_missing_parent_when_create_dirs_is_false(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, 
         "write",
@@ -261,7 +277,8 @@ def test_write_rejects_missing_parent_when_create_dirs_is_false(tmp_path):
 def test_write_rejects_existing_file_when_overwrite_is_false(tmp_path):
     target = tmp_path / "todo.txt"
     target.write_text("old", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "write", {"path": "todo.txt", "content": "new", "overwrite": False})
 
@@ -271,7 +288,8 @@ def test_write_rejects_existing_file_when_overwrite_is_false(tmp_path):
 
 
 def test_write_rejects_paths_outside_root(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "write", {"path": "../outside.txt", "content": "secret"})
 
@@ -282,7 +300,8 @@ def test_write_rejects_paths_outside_root(tmp_path):
 def test_delete_removes_file_inside_root(tmp_path):
     target = tmp_path / "todo.txt"
     target.write_text("delete me", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "delete", {"path": "todo.txt"})
 
@@ -295,7 +314,8 @@ def test_delete_removes_file_inside_root(tmp_path):
 def test_delete_requires_recursive_for_directory(tmp_path):
     target = tmp_path / "dir"
     target.mkdir()
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "delete", {"path": "dir"})
 
@@ -308,7 +328,8 @@ def test_delete_removes_directory_when_recursive_enabled(tmp_path):
     target = tmp_path / "dir"
     target.mkdir()
     (target / "file.txt").write_text("x", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "delete", {"path": "dir", "recursive": True})
 
@@ -318,7 +339,8 @@ def test_delete_removes_directory_when_recursive_enabled(tmp_path):
 
 
 def test_delete_rejects_paths_outside_root(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "delete", {"path": "../outside.txt"})
 
@@ -327,7 +349,8 @@ def test_delete_rejects_paths_outside_root(tmp_path):
 
 
 def test_delete_rejects_project_root(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "delete", {"path": ".", "recursive": True})
 
@@ -348,7 +371,8 @@ def test_delete_treats_symlink_as_file_and_unlinks_it(tmp_path):
     real_file.write_text("target content", encoding="utf-8")
     symlink = tmp_path / "link.txt"
     symlink.symlink_to(real_file)
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "delete", {"path": "link.txt"})
 
@@ -361,7 +385,8 @@ def test_delete_treats_symlink_as_file_and_unlinks_it(tmp_path):
 def test_edit_replaces_unique_text_inside_root(tmp_path):
     target = tmp_path / "app.py"
     target.write_text("print('old')\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "edit", {"path": "app.py", "old": "old", "new": "new"})
 
@@ -378,7 +403,8 @@ def test_edit_reports_noop_when_replacement_is_identical(tmp_path):
     target = tmp_path / "app.py"
     target.write_text("print('same')\n", encoding="utf-8")
     before = target.stat().st_mtime_ns
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, 
         "edit",
@@ -396,7 +422,8 @@ def test_edit_reports_noop_when_replacement_is_identical(tmp_path):
 def test_edit_missing_match_suggests_refreshing_file_context(tmp_path):
     target = tmp_path / "app.py"
     target.write_text("current\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, 
         "edit",
@@ -411,7 +438,8 @@ def test_edit_missing_match_suggests_refreshing_file_context(tmp_path):
 def test_edit_rejects_empty_old_text(tmp_path):
     target = tmp_path / "app.py"
     target.write_text("print('old')\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "edit", {"path": "app.py", "old": "", "new": "new"})
 
@@ -420,7 +448,8 @@ def test_edit_rejects_empty_old_text(tmp_path):
 
 
 def test_edit_rejects_paths_outside_root(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "edit", {"path": "../outside.txt", "old": "x", "new": "y"})
 
@@ -431,7 +460,8 @@ def test_edit_rejects_paths_outside_root(tmp_path):
 def test_edit_rejects_ambiguous_text_without_replace_all(tmp_path):
     target = tmp_path / "app.py"
     target.write_text("old\nold\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "edit", {"path": "app.py", "old": "old", "new": "new"})
 
@@ -442,7 +472,8 @@ def test_edit_rejects_ambiguous_text_without_replace_all(tmp_path):
 def test_edit_can_replace_all_matches_when_enabled(tmp_path):
     target = tmp_path / "app.py"
     target.write_text("old\nold\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "edit", {"path": "app.py", "old": "old", "new": "new", "replace_all": True})
 
@@ -455,7 +486,8 @@ def test_edit_fails_when_old_text_spans_multiple_lines(tmp_path):
     """edit 的 old 参数若跨行出现多次，由于 text.count(old) 按子串计数，仍可能匹配。"""
     target = tmp_path / "app.py"
     target.write_text("line1\nline2\nline3\nline1\nline2\nline3\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     # 跨两行的 old 文本出现了 2 次，因此默认应该拒绝
     result = execute_tool(registry, "edit", {"path": "app.py", "old": "line1\nline2", "new": "A\nB"})
@@ -467,7 +499,8 @@ def test_edit_fails_when_old_text_spans_multiple_lines(tmp_path):
 def test_edit_can_replace_multiline_old_when_unique(tmp_path):
     target = tmp_path / "app.py"
     target.write_text("line1\nline2\nline3\n", encoding="utf-8")
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "edit", {"path": "app.py", "old": "line1\nline2", "new": "A\nB"})
 

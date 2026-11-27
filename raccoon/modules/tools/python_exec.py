@@ -70,7 +70,7 @@ def create_python_exec_tool(root: str | Path, *, access: SandboxAccess | None = 
             success_fallback=f"Python 退出码：{result.exit_code}",
         )
 
-    tool = tool_from_function(python_exec, exposure="deferred")
+    tool = tool_from_function(python_exec, exposure="deferred", supports_background=True)
     tool.definition.parameters["properties"]["env"] = {
         "type": "object",
         "additionalProperties": {"type": "string"},

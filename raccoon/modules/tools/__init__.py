@@ -1,6 +1,6 @@
 """工具定义、注册和执行入口。"""
 
-from raccoon.modules.tools.builtin import create_builtin_registry
+from raccoon.modules.tools.builtin import create_builtin_tools
 from raccoon.modules.tools.apply_patch import create_apply_patch_tool
 from raccoon.modules.tools.ask_user import create_ask_user_tool
 from raccoon.modules.tools.delete import create_delete_tool
@@ -32,7 +32,7 @@ __all__ = [
     "ToolResult",
     "create_apply_patch_tool",
     "create_ask_user_tool",
-    "create_builtin_registry",
+    "create_builtin_tools",
     "create_delete_tool",
     "create_delegate_tool",
     "create_diagnostics_tool",

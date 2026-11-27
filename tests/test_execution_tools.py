@@ -14,12 +14,14 @@ from raccoon.modules.permissions.policy import DefaultPermissionPolicy
 from raccoon.modules.permissions.types import PermissionMode
 from raccoon.modules.tools.diagnostics import create_diagnostics_tool
 from raccoon.modules.tools.shell import create_shell_tool
-from raccoon.modules.tools import create_builtin_registry
+from raccoon.modules.tools.registry import ToolRegistry
+from raccoon.modules.tools import create_builtin_tools
 from raccoon.runtime.subprocess import CommandResult
 
 
 def test_shell_executes_command_inside_root(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "shell", {"command": "echo hello"})
 
@@ -41,7 +43,8 @@ def test_shell_nonzero_exit_returns_stdout_and_stderr_to_model(tmp_path, monkeyp
         )
 
     monkeypatch.setattr("raccoon.runtime.execution_sandbox.run_command", fake_run)
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "shell", {"command": "compile"})
 
@@ -52,7 +55,8 @@ def test_shell_nonzero_exit_returns_stdout_and_stderr_to_model(tmp_path, monkeyp
 
 
 def test_shell_rejects_cwd_outside_root(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "shell", {"command": "echo hi", "cwd": ".."})
 
@@ -73,7 +77,8 @@ def test_shell_timeout_returns_partial_output_to_model(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr("raccoon.runtime.execution_sandbox.run_command", fake_run)
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "shell", {"command": "slow"})
 
@@ -85,7 +90,8 @@ def test_shell_timeout_returns_partial_output_to_model(tmp_path, monkeypatch):
 
 
 def test_shell_truncates_large_stdout(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
     command = subprocess.list2cmdline([sys.executable, "-c", "print('abcdef', end='')"])
 
     result = execute_tool(registry, "shell", {"command": command, "max_output_chars": 3})
@@ -98,7 +104,8 @@ def test_shell_truncates_large_stdout(tmp_path):
 
 
 def test_execution_tools_accept_explicit_non_sensitive_environment(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
 
     shell_command = subprocess.list2cmdline(
         [
@@ -120,7 +127,8 @@ def test_execution_tools_accept_explicit_non_sensitive_environment(tmp_path):
 
 
 def test_execution_tools_reject_explicit_sensitive_environment(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
 
     for tool_name, arguments in (
         ("shell", {"command": "echo no", "env": {"OPENAI_API_KEY": "secret"}}),
@@ -135,11 +143,12 @@ def test_execution_tools_reject_explicit_sensitive_environment(tmp_path):
 
 def test_process_tools_start_wait_for_readiness_read_logs_and_stop(tmp_path):
     manager = ProcessManager(log_root=tmp_path / ".raccoon" / "processes")
-    registry = create_builtin_registry(
+    tools = create_builtin_tools(
         tmp_path,
         include_execution_tools=True,
         process_manager=manager,
     )
+    registry = ToolRegistry(tools)
     script = (
         "import sys,time; "
         "print('booting', flush=True); "
@@ -184,11 +193,12 @@ def test_process_tools_start_wait_for_readiness_read_logs_and_stop(tmp_path):
 
 def test_process_start_reports_readiness_timeout_without_losing_process(tmp_path):
     manager = ProcessManager(log_root=tmp_path / ".raccoon" / "processes")
-    registry = create_builtin_registry(
+    tools = create_builtin_tools(
         tmp_path,
         include_execution_tools=True,
         process_manager=manager,
     )
+    registry = ToolRegistry(tools)
     command = subprocess.list2cmdline([sys.executable, "-c", "import time; time.sleep(60)"])
 
     try:
@@ -211,11 +221,12 @@ def test_process_start_reports_readiness_timeout_without_losing_process(tmp_path
 
 def test_process_start_rejects_sensitive_environment(tmp_path):
     manager = ProcessManager(log_root=tmp_path / ".raccoon" / "processes")
-    registry = create_builtin_registry(
+    tools = create_builtin_tools(
         tmp_path,
         include_execution_tools=True,
         process_manager=manager,
     )
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, 
         "process_start",
@@ -239,7 +250,8 @@ def test_diagnostics_runs_pytest(monkeypatch, tmp_path):
         )
 
     monkeypatch.setattr("raccoon.runtime.execution_sandbox.run_command", fake_run)
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "diagnostics")
 
@@ -260,7 +272,8 @@ def test_diagnostics_failure_returns_test_output_to_model(monkeypatch, tmp_path)
         )
 
     monkeypatch.setattr("raccoon.runtime.execution_sandbox.run_command", fake_run)
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     result = execute_tool(registry, "diagnostics")
 
@@ -272,7 +285,8 @@ def test_diagnostics_failure_returns_test_output_to_model(monkeypatch, tmp_path)
 
 def test_diagnostics_requires_permission_confirmation(tmp_path):
     calls = []
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
     manager = PermissionManager(policy=DefaultPermissionPolicy(tmp_path))
     permissioned = partial(execute_tool, registry, permission_manager=manager)
 
@@ -296,7 +310,8 @@ def test_shell_runs_task_virtual_environment_python(tmp_path):
     script = tmp_path / "task.py"
     script.write_text("import sys\nsys.stdout.reconfigure(encoding='utf-8')\nprint(sys.prefix)\nprint('中文 ϕ')\n", encoding="utf-8")
     command = (subprocess.list2cmdline if os.name == "nt" else shlex.join)([str(executable), str(script)])
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
     result = execute_tool(registry, "shell", {"command": command})
     assert result.ok, result.content
     assert str(task_env) in result.data["stdout"]
@@ -309,7 +324,8 @@ def test_shell_python_requires_confirmation_in_aggressive_mode(tmp_path, monkeyp
         calls.append(args)
         raise AssertionError("Must not execute before approval")
     monkeypatch.setattr("raccoon.runtime.execution_sandbox.run_command", forbidden)
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
     manager = PermissionManager(policy=DefaultPermissionPolicy(tmp_path), mode=PermissionMode.AUTO)
     permissioned = partial(execute_tool, registry, permission_manager=manager)
     result = permissioned("shell", {"command": "python -c print(42)"})
@@ -319,7 +335,8 @@ def test_shell_python_requires_confirmation_in_aggressive_mode(tmp_path, monkeyp
 
 
 def test_python_exec_runs_without_shell_quoting(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
     result = execute_tool(registry, "python_exec", {"code": "from pathlib import Path; Path('result.txt').write_text('a & b', encoding='utf-8'); print(42)"})
     assert result.ok
     assert result.data["stdout"].strip() == "42"
@@ -327,7 +344,8 @@ def test_python_exec_runs_without_shell_quoting(tmp_path):
 
 
 def test_python_exec_returns_failure_output(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
     result = execute_tool(registry, "python_exec", {"code": "import sys; print('before'); print('failure', file=sys.stderr); sys.exit(2)"})
     assert not result.ok
     assert result.data["exit_code"] == 2
@@ -335,13 +353,15 @@ def test_python_exec_returns_failure_output(tmp_path):
 
 
 def test_python_exec_rejects_outside_cwd_and_sensitive_env(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
     assert not execute_tool(registry, "python_exec", {"code": "print(42)", "cwd": ".."}).ok
     assert not execute_tool(registry, "python_exec", {"code": "print(42)", "env": {"OPENAI_API_KEY": "secret"}}).ok
 
 
 def test_python_exec_requires_confirmation_before_execution(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
     manager = PermissionManager(policy=DefaultPermissionPolicy(tmp_path), mode=PermissionMode.AUTO)
     permissioned = partial(execute_tool, registry, permission_manager=manager)
     result = permissioned("python_exec", {"code": "from pathlib import Path; Path('must-not-exist').touch()"})

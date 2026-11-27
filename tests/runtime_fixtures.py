@@ -45,7 +45,7 @@ def _catalog_config(*, default_model: str | None = "yuren/main") -> AppConfig:
             },
         },
         "models": {
-            "yuren/main": {"context_window": 128_000, "request": {"temperature": 0.2}},
+            "yuren/main": {"context_window": 128_000},
             "mimo/pro": {"context_window": 200_000},
         },
     }

@@ -22,7 +22,7 @@ def test_responses_async_definition_call_and_stateless_replay():
     assert endpoint.requests[0]["tools"][0]["async"] is True
     assert first.tool_calls[0].async_execution is True
     asyncio.run(p.acomplete(ChatRequest(messages=[
-        ChatMessage("assistant", "", tool_calls=first.tool_calls, provider_state=first.provider_state),
+        ChatMessage("assistant", parts=first.parts),
         ChatMessage("user", "another question"),
         ChatMessage("tool", "actual output", tool_call_id="call_1"),
     ])))
@@ -37,18 +37,18 @@ def test_responses_sdk_async_call_is_replayed_with_wire_field_name():
 
     call = ResponseFunctionToolCall(
         id="fc_async", call_id="call_async", name="echo", arguments='{"text":"hello"}',
-        type="function_call", async_=True, status="completed",
+        type="function_call", status="completed", **{"async": True},
     )
     p, endpoint = provider(api_response([call]), api_response([MESSAGE]))
 
     first = asyncio.run(p.acomplete(ChatRequest(messages=[ChatMessage("user", "start")])))
     assert first.tool_calls[0].async_execution is True
-    assert first.provider_state["output"][0]["async"] is True
-    assert "async_" not in first.provider_state["output"][0]
+    assert first.parts[0].metadata["async_execution"] is True
+    assert "async_" not in first.parts[0].metadata.get("api_fields", {})
 
     asyncio.run(p.acomplete(ChatRequest(messages=[
         ChatMessage("user", "start"),
-        ChatMessage("assistant", "", tool_calls=first.tool_calls, provider_state=first.provider_state),
+        ChatMessage("assistant", parts=first.parts),
         ChatMessage("tool", "actual output", tool_call_id="call_async"),
     ])))
 
@@ -78,9 +78,9 @@ def test_native_tool_result_reaches_the_model_before_final_reply(tmp_path):
     async def scenario():
         manager = BackgroundJobManager()
         service = ConversationService()
-        tool = Tool(ToolDefinition("view", "Read", {"type": "object"}), work)
+        tool = Tool(ToolDefinition("view", "Read", {"type": "object"}), work, supports_background=True)
         store = SessionStore(tmp_path)
-        session = new_session(store=store, tools=[tool])
+        session = new_session(store=store, tools=[tool], background_manager=manager)
         model = Model([])
         key = service.register(SessionRuntime(
             session, model, tools=[tool], background_manager=manager, native_async_tools=True,

@@ -10,18 +10,19 @@ import pytest
 
 from raccoon.runtime.processes import ProcessManager
 from raccoon.runtime.model_types import ToolDefinition
-from raccoon.modules.tools import ToolRegistry, create_builtin_registry
-from raccoon.modules.tools.session_registry import create_session_tool_registry
+from raccoon.modules.tools import ToolRegistry, create_builtin_tools
+from raccoon.modules.tools.session_registry import build_tool_registry
 from raccoon.modules.tools.types import Tool, make_text_result
 
 
 def test_builtin_tool_descriptions_are_agent_facing_english(tmp_path):
-    registry = create_builtin_registry(
+    tools = create_builtin_tools(
         tmp_path,
         include_mutation_tools=True,
         include_execution_tools=True,
         include_network_tools=True,
     )
+    registry = ToolRegistry(tools)
     descriptions = {definition.name: definition.description for definition in registry.definitions()}
 
     assert descriptions["view"].startswith("Read a UTF-8 text file")
@@ -36,7 +37,8 @@ def test_builtin_tool_descriptions_are_agent_facing_english(tmp_path):
 
 
 def test_builtin_registry_contains_read_only_tools(tmp_path):
-    registry = create_builtin_registry(tmp_path)
+    tools = create_builtin_tools(tmp_path)
+    registry = ToolRegistry(tools)
 
     assert registry.names() == [
         "ls",
@@ -66,7 +68,8 @@ def test_builtin_registry_contains_read_only_tools(tmp_path):
 
 
 def test_builtin_registry_can_hide_ask_user_for_noninteractive_runs(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_ask_user=False)
+    tools = create_builtin_tools(tmp_path, include_ask_user=False)
+    registry = ToolRegistry(tools)
 
     assert "ask_user" not in registry.names()
     assert registry.names() == [
@@ -86,7 +89,8 @@ def test_builtin_registry_can_hide_ask_user_for_noninteractive_runs(tmp_path):
 
 
 def test_builtin_registry_can_include_mutation_tools_when_explicitly_enabled(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_mutation_tools=True)
+    tools = create_builtin_tools(tmp_path, include_mutation_tools=True)
+    registry = ToolRegistry(tools)
 
     assert registry.names() == [
         "ls",
@@ -110,7 +114,8 @@ def test_builtin_registry_can_include_mutation_tools_when_explicitly_enabled(tmp
 
 
 def test_builtin_registry_can_include_network_tools_when_explicitly_enabled(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_network_tools=True)
+    tools = create_builtin_tools(tmp_path, include_network_tools=True)
+    registry = ToolRegistry(tools)
 
     assert registry.names() == [
         "ls",
@@ -133,18 +138,20 @@ def test_builtin_registry_can_include_network_tools_when_explicitly_enabled(tmp_
 
 
 def test_builtin_registry_can_keep_fetch_while_hiding_web_search(tmp_path):
-    registry = create_builtin_registry(
+    tools = create_builtin_tools(
         tmp_path,
         include_network_tools=True,
         include_web_search=False,
     )
+    registry = ToolRegistry(tools)
 
     assert "web_fetch" in registry.names()
     assert "web_search" not in registry.names()
 
 
 def test_builtin_registry_can_include_execution_tools_when_explicitly_enabled(tmp_path):
-    registry = create_builtin_registry(tmp_path, include_execution_tools=True)
+    tools = create_builtin_tools(tmp_path, include_execution_tools=True)
+    registry = ToolRegistry(tools)
 
     assert registry.names() == [
         "ls",
@@ -171,11 +178,12 @@ def test_builtin_registry_can_include_execution_tools_when_explicitly_enabled(tm
 
 def test_builtin_registry_includes_process_tools_when_manager_is_supplied(tmp_path):
     manager = ProcessManager(log_root=tmp_path / ".raccoon" / "processes")
-    registry = create_builtin_registry(
+    tools = create_builtin_tools(
         tmp_path,
         include_execution_tools=True,
         process_manager=manager,
     )
+    registry = ToolRegistry(tools)
 
     assert registry.names()[-6:] == [
         "shell",
@@ -225,13 +233,67 @@ def test_session_registry_adds_four_authoritative_task_plan_tools(tmp_path):
     from raccoon.modules.sessions.store import SessionStore
 
     store = SessionStore(tmp_path)
-    registry = create_session_tool_registry(data=store.create(), store=store)
+    registry = build_tool_registry(data=store.create(), store=store)
 
     for name in ("task_create", "task_update", "task_revise", "task_list", "load_skill"):
         assert name in registry.names()
     descriptions = {definition.name: definition.description for definition in registry.definitions()}
     assert "stable task ID" in descriptions["task_update"]
     assert "wording" in descriptions["task_revise"]
+
+
+def test_built_registry_refresh_keeps_session_tools_and_replaces_supplied_tools(tmp_path):
+    from raccoon.modules.sessions.store import SessionStore
+
+    store = SessionStore(tmp_path / "sessions")
+    tools = create_builtin_tools(tmp_path)
+    registry = build_tool_registry(data=store.create(), store=store, tools=tools)
+    session_names = {"task_create", "task_update", "task_revise", "task_list", "load_skill", "session_status"}
+    session_tools = {name: registry.get(name) for name in session_names}
+    extension = Tool(
+        definition=ToolDefinition("mcp_example", "Example extension", {"type": "object"}),
+        executor=lambda: make_text_result("mcp_example", "ok"),
+        exposure="deferred",
+    )
+
+    registry.replace_supplied_tools([*tools, extension])
+    assert registry.get("mcp_example") is extension
+    assert registry.get("view") is next(tool for tool in tools if tool.name == "view")
+
+    registry.replace_supplied_tools([])
+    assert set(registry.names()) == session_names
+    for name, tool in session_tools.items():
+        assert registry.get(name) is tool
+
+
+@pytest.mark.parametrize("isolated", [False, True])
+def test_subagent_file_tools_use_the_child_workspace_and_access_boundary(tmp_path, isolated):
+    from raccoon.config.subagents_config import SubagentConfig
+    from raccoon.modules.collaboration.sessions import _freeze_inline_tools, _worktree_subagent_tools
+    from raccoon.modules.permissions.sandbox_access import SandboxAccess
+
+    parent_root = tmp_path / "parent"
+    child_root = tmp_path / "child"
+    parent_root.mkdir()
+    child_root.mkdir()
+    (parent_root / "README.md").write_text("parent content", encoding="utf-8")
+    (child_root / "README.md").write_text("child content", encoding="utf-8")
+    access = SandboxAccess()
+    if isolated:
+        tools = _worktree_subagent_tools(
+            child_root,
+            config=SubagentConfig(name="reviewer", tools=("view",)),
+            access=access,
+        )
+        assert [tool.name for tool in tools] == ["view"]
+    else:
+        tools = _freeze_inline_tools(create_builtin_tools(parent_root), root=child_root, access=access)
+    view = next(tool for tool in tools if tool.name == "view")
+
+    result = view.executor(path="README.md")
+    assert result.ok
+    assert result.content == "1: child content"
+    assert not view.executor(path=str(parent_root / "README.md")).ok
 
 
 @pytest.mark.parametrize(
@@ -254,4 +316,4 @@ def test_session_registry_rejects_supplied_task_plan_tool_override(
     from raccoon.modules.sessions.store import SessionStore
     store = SessionStore(tmp_path)
     with pytest.raises(ValueError, match="reserved"):
-        create_session_tool_registry(data=store.create(), store=store, tools=[supplied])
+        build_tool_registry(data=store.create(), store=store, tools=[supplied])

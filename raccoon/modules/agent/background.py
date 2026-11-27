@@ -27,7 +27,6 @@ from raccoon.modules.tools.background_controls import (
     BACKGROUND_TASK_ID_ARG,
     BACKGROUND_HANDLE_ARG,
     BACKGROUND_CONTROL_ARGS,
-    DEFAULT_BACKGROUND_TOOL_NAMES,
     with_background_controls,
     with_task_handle_control,
     strip_background_controls,

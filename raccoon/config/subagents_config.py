@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 import logging
-import math
 from pathlib import Path
 import re
 
@@ -19,15 +18,18 @@ class SubagentConfig:
     system_prompt: str = ""
     tools: tuple[str, ...] | None = None
     skills: tuple[str, ...] | None = None
-    max_tool_rounds: int = 20
-    max_provider_calls: int = 40
-    max_turn_seconds: float = 600
     allow_background: bool = False
     requires_worktree: bool = False
 
 
 class SubagentConfigError(ValueError):
     """Raised when a subagent definition cannot be loaded or validated."""
+
+
+def remove_obsolete_loop_limits(config: dict) -> None:
+    """Older role files and saved sessions may still contain these settings."""
+    for key in ("max_tool_rounds", "max_provider_calls", "max_turn_seconds"):
+        config.pop(key, None)
 
 
 def _load_config_values(name: str, *, path: Path) -> dict:
@@ -39,6 +41,7 @@ def _load_config_values(name: str, *, path: Path) -> dict:
         raise SubagentConfigError(f"cannot read subagent config {path}: {error}") from error
     if not isinstance(raw, dict):
         raise SubagentConfigError(f"subagent config root must be a mapping: {path}")
+    remove_obsolete_loop_limits(raw)
     unknown = set(raw) - (set(SubagentConfig.__dataclass_fields__) - {"system_prompt"})
     if unknown:
         raise SubagentConfigError(f"unsupported subagent config fields: {', '.join(sorted(map(str, unknown)))}")
@@ -57,13 +60,6 @@ def _load_config_values(name: str, *, path: Path) -> dict:
             if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
                 raise SubagentConfigError(f"{key} must be a list of nonempty strings")
             options[key] = tuple(dict.fromkeys(value))
-    for key in ("max_tool_rounds", "max_provider_calls", "max_turn_seconds"):
-        value = raw.get(key)
-        if value is not None:
-            expected = (int, float) if key == "max_turn_seconds" else (int,)
-            if isinstance(value, bool) or not isinstance(value, expected) or not math.isfinite(value) or value <= 0:
-                raise SubagentConfigError(f"{key} must be positive")
-            options[key] = value
     for key in ("allow_background", "requires_worktree"):
         if key in raw:
             if type(raw[key]) is not bool:
